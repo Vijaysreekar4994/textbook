@@ -1,0 +1,789 @@
+// SCSS Styles for Portable Checklist React PWA
+
+// Color Variables - Dark Mode
+$primary-color: #60a5fa;
+$primary-hover: #3b82f6;
+$bg-color: #0f172a;
+$card-bg: #1e293b;
+$text-color: #e2e8f0;
+$text-muted: #94a3b8;
+$border-color: #334155;
+$success-color: #34d399;
+$danger-color: #f87171;
+$warning-color: #fbbf24;
+$focus-color: #60a5fa;
+
+// Spacing & Borders
+$border-radius: 8px;
+$transition-speed: 0.2s;
+
+// Mixins
+@mixin focus-outline {
+    &:focus-visible {
+        outline: 3px solid $focus-color;
+        outline-offset: 2px;
+    }
+}
+
+@mixin flex-row {
+    display: flex;
+    align-items: center;
+}
+
+// Reset & Base Layout
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: $bg-color;
+    color: $text-color;
+    line-height: 1.5;
+    font-size: 14px;
+    overflow-x: hidden; // Prevent horizontal page scroll
+    max-width: 100vw;
+}
+
+.app-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+    overflow-x: hidden; // Prevent horizontal overflow
+
+    @media (max-width: 768px) {
+        padding: 12px;
+        gap: 12px;
+    }
+
+    @media (max-width: 600px) {
+        padding: 8px;
+        gap: 10px;
+        width: 100%;
+    }
+}
+
+// footer and Sync Status Styling
+.app-footer {
+    background-color: $card-bg;
+    padding: 16px;
+    border-radius: $border-radius;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    @media (max-width: 600px) {
+        padding: 12px;
+    }
+}
+
+.sync-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.sync-status {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .indicator-label {
+        font-size: 0.75rem;
+        color: $text-muted;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 3px 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        border-radius: 4px;
+        text-transform: capitalize;
+
+        &.state-synced {
+            background-color: rgba($success-color, 0.15);
+            color: $success-color;
+        }
+
+        &.state-syncing {
+            background-color: rgba($primary-color, 0.15);
+            color: $primary-color;
+        }
+
+        &.state-conflict {
+            background-color: rgba($danger-color, 0.15);
+            color: $danger-color;
+        }
+
+        &.state-signed-out {
+            background-color: rgba($text-muted, 0.15);
+            color: $text-muted;
+        }
+
+        &.state-sync-failed {
+            background-color: rgba($danger-color, 0.15);
+            color: $danger-color;
+        }
+    }
+
+    .timestamp {
+        font-size: 0.7rem;
+        color: $text-muted;
+    }
+}
+
+.sync-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.auto-sync-indicator {
+    font-size: 0.75rem;
+    color: $success-color;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.db-alert {
+    width: 100%;
+    padding: 10px;
+    background-color: rgba($warning-color, 0.15);
+    color: $warning-color;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+
+// Tabbed Navigation Bar
+.tab-navigation {
+    border-bottom: 2px solid $border-color;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none; // Firefox
+    -webkit-overflow-scrolling: touch; // iOS smooth scrolling
+
+    &::-webkit-scrollbar {
+        display: none; // Chrome/Safari
+    }
+
+    .tab-list {
+        display: inline-flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        scroll-behavior: smooth;
+    }
+}
+
+.tab-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: $border-radius $border-radius 0 0;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all $transition-speed ease;
+    font-size: 0.85rem;
+    color: $text-muted;
+    user-select: none;
+    flex-shrink: 0;
+
+    @media (max-width: 600px) {
+        padding: 6px 10px;
+        font-size: 0.8rem;
+    }
+
+    span {
+        cursor: pointer;
+    }
+
+    &.active {
+        background-color: $card-bg;
+        border-color: $border-color;
+        color: $primary-color;
+        font-weight: 600;
+        position: relative;
+        z-index: 1;
+    }
+
+    &.add-tab {
+        color: $primary-color;
+        font-weight: 600;
+    }
+
+    .tab-delete {
+        background: none;
+        border: none;
+        color: $text-muted;
+        font-size: 1rem;
+        cursor: pointer;
+        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        &:hover {
+            background-color: rgba($danger-color, 0.1);
+            color: $danger-color;
+        }
+    }
+}
+
+// Main App Area and Layouts
+.app-body {
+    min-height: 400px;
+}
+
+.list-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.list-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    h2 {
+        font-size: 1.2rem;
+        user-select: none;
+
+        @media (max-width: 600px) {
+            font-size: 1.1rem;
+        }
+    }
+}
+
+.categories-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 8px;
+
+    @media (max-width: 600px) {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+}
+
+// Categories and subcategories nesting
+.category-card {
+    background-color: $card-bg;
+    border-radius: $border-radius;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    border: 1px solid $border-color;
+    overflow: visible;
+
+    &.depth-1 {
+        border-left: 5px solid $primary-color;
+    }
+
+    &.depth-2 {
+        border-left: 5px solid $primary-hover;
+        margin-left: 10px;
+    }
+
+    &.depth-3 {
+        border-left: 5px solid #93c5fd;
+        margin-left: 20px;
+    }
+
+    &.depth-4 {
+        border-left: 5px solid #bfdbfe;
+        margin-left: 30px;
+    }
+
+    &.depth-5 {
+        border-left: 5px solid #dbeafe;
+        margin-left: 40px;
+    }
+}
+
+.category-header {
+    padding: 4px 16px;
+    background-color: rgba($border-color, 0.2);
+    // border-bottom: 1px solid $border-color;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    @media (max-width: 600px) {
+        // padding: 10px 12px;
+    }
+}
+
+.category-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-grow: 1;
+    user-select: none;
+    height: 20px;
+
+    .fold-icon {
+        font-size: 0.8rem;
+        margin-right: 4px;
+        color: $text-muted;
+    }
+
+    .category-header-title-button{
+        background-color: transparent;
+        border: none;
+        cursor: pointer;
+    }
+    .category-title {
+        font-weight: 600;
+        user-select: none;
+    }
+
+    .badge-depth {
+        font-size: 0.7rem;
+        user-select: none;
+        padding: 2px 6px;
+        background-color: rgba($border-color, 0.3);
+        color: $text-muted;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+
+    .category-count {
+        font-size: 0.8rem;
+        color: $text-muted;
+        font-weight: 500;
+        white-space: nowrap;
+
+        .checkmark {
+            color: $success-color;
+        }
+    }
+}
+
+.category-body {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    @media (max-width: 600px) {
+        padding: 12px;
+        gap: 8px; // change later
+    }
+}
+
+// Todo Item and recursive nesting levels
+.todo-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    &.depth-1 {
+        border-left: 2px solid transparent;
+    }
+
+    &.depth-2 {
+        margin-left: 10px;
+    }
+
+    &.depth-3 {
+        margin-left: 20px;
+    }
+
+    &.depth-4 {
+        margin-left: 30px;
+    }
+
+    &.depth-5 {
+        margin-left: 40px;
+    }
+}
+
+.todo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+}
+
+.todo-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.todo-title-input {
+    flex-grow: 1;
+    border: none;
+    border-bottom: 1px dashed transparent;
+    background-color: transparent;
+    padding: 4px;
+    font-size: 0.9rem;
+    color: $text-color;
+
+    @media (max-width: 600px) {
+        font-size: 0.85rem;
+    }
+
+    &:focus {
+        border-bottom: 1px dashed $primary-color;
+        outline: none;
+    }
+
+    &.completed {
+        text-decoration: line-through;
+        color: $text-muted;
+        opacity: 0.7;
+    }
+}
+
+.todo-notes {
+    flex-grow: 1;
+    border: 1px solid $border-color;
+    border-radius: 4px;
+    padding: 6px;
+    font-size: 0.85rem;
+    min-height: 50px;
+    resize: vertical;
+
+    @media (max-width: 600px) {
+        font-size: 0.8rem;
+    }
+}
+
+.nested-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-left: 1px dashed $border-color;
+    padding-left: 12px;
+    margin-top: 4px;
+}
+
+// Fold/Unfold toggle for nested lists
+.list-header-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.03);
+    transition: background $transition-speed;
+    font-size: 0.85rem;
+    color: $text-muted;
+    user-select: none;
+
+    &:hover {
+        background-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .fold-icon {
+        font-size: 0.75rem;
+        transition: transform $transition-speed;
+    }
+
+    .list-items-count {
+        font-weight: 500;
+    }
+}
+
+// List title wrapper with fold toggle
+.todo-title-list-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-grow: 1;
+}
+
+.list-fold-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-grow: 1;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: background $transition-speed;
+    user-select: none;
+
+    &:hover {
+        background-color: rgba(0, 0, 0, 0.04);
+    }
+
+    .fold-icon {
+        font-size: 0.75rem;
+        color: $text-muted;
+        transition: transform $transition-speed;
+        flex-shrink: 0;
+    }
+
+    .todo-title-input {
+        flex-grow: 1;
+        cursor: text;
+    }
+
+    .todo-title-text {
+        flex-grow: 1;
+        cursor: pointer;
+        font-weight: 500;
+        color: $text-color;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: background $transition-speed;
+
+        &:hover {
+            background-color: rgba(0, 0, 0, 0.04);
+        }
+
+        &.completed {
+            text-decoration: line-through;
+            opacity: 0.6;
+        }
+    }
+
+    .list-items-count {
+        font-size: 0.8rem;
+        color: $text-muted;
+        font-weight: 500;
+        flex-shrink: 0;
+        white-space: nowrap;
+
+        .checkmark {
+            color: $success-color;
+        }
+    }
+}
+
+// Dropdowns (accessible via tab triggers)
+.dropdown {
+    position: relative;
+    display: inline-block;
+
+    .dropdown-trigger {
+        margin-left: 4px;
+        background: none;
+        border: none;
+        color: $text-muted;
+        font-size: 1.2rem;
+        user-select: none;
+        padding: 0 4px;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: background $transition-speed;
+
+        &:hover {
+            background-color: rgba($border-color, 0.2);
+        }
+    }
+
+    &.open .dropdown-menu {
+        display: block;
+    }
+}
+
+.dropdown-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background-color: $card-bg;
+    border: 1px solid $border-color;
+    border-radius: $border-radius;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    min-width: 180px;
+    z-index: 9999999;
+    padding: 6px 0;
+
+    button {
+        width: 100%;
+        text-align: left;
+        background: none;
+        border: none;
+        padding: 8px 16px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        color: $text-color;
+
+        &:hover:not(:disabled) {
+            background-color: rgba($border-color, 0.3);
+        }
+
+        &:disabled {
+            color: $text-muted;
+            cursor: not-allowed;
+        }
+
+        &.delete-action {
+            color: $danger-color;
+
+            &:hover:not(:disabled) {
+                background-color: rgba($danger-color, 0.1);
+            }
+        }
+    }
+}
+
+.validation-tooltip {
+    font-size: 0.75rem;
+    color: $danger-color;
+    padding: 4px 16px;
+    border-top: 1px solid $border-color;
+}
+
+// Buttons & CTA styles
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all $transition-speed;
+    border: 1px solid transparent;
+
+    @media (max-width: 600px) {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+
+    &.btn-primary {
+        background-color: $primary-color;
+        color: white;
+
+        &:hover {
+            background-color: $primary-hover;
+        }
+    }
+
+    &.btn-secondary {
+        background-color: transparent;
+        border-color: $primary-color;
+        color: $primary-color;
+
+        &:hover {
+            background-color: rgba($primary-color, 0.1);
+        }
+    }
+
+    &.btn-outline {
+        background-color: transparent;
+        border-color: $border-color;
+        color: $text-color;
+
+        &:hover {
+            background-color: rgba($border-color, 0.2);
+        }
+    }
+
+    &.btn-add {
+        user-select: none;
+        margin-left: auto;
+        // width: 20px;
+        height: 25px;
+        // margin-top:12px;
+        // margin-bottom:12px;
+        justify-content: center;
+        border: 1px dashed $border-color;
+        background-color: rgba($border-color, 0.1);
+        color: $text-muted;
+
+        &:hover {
+            background-color: rgba($border-color, 0.2);
+            color: $text-color;
+        }
+    }
+}
+
+// Modal overlay for sync merge-conflicts
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+
+    @media (max-width: 600px) {
+        padding: 12px;
+    }
+}
+
+.modal-content {
+    background-color: $card-bg;
+    border-radius: $border-radius;
+    padding: 24px;
+    max-width: 500px;
+    width: 100%;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+
+    @media (max-width: 600px) {
+        padding: 16px;
+    }
+
+    h3 {
+        font-size: 1.1rem;
+        color: $danger-color;
+    }
+
+    p {
+        font-size: 0.85rem;
+        color: $text-muted;
+    }
+
+    .modal-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 10px;
+
+        button {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+}
+
+.empty-state {
+    text-align: center;
+    padding: 20px;
+    background-color: $card-bg;
+    border-radius: $border-radius;
+    border: 1px dashed $border-color;
+    color: $text-muted;
+}
+
+// prefers-reduced-motion media query
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
