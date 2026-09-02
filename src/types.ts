@@ -1,11 +1,11 @@
-export interface TodoItem {
+export interface TodoItemType {
   id: string;
   title: string;
   completed: boolean;
   isText?: boolean;
   text?: string;
   isList?: boolean;
-  listItems?: TodoItem[];
+  listItems?: TodoItemType[];
   collapsed?: boolean; // For fold/unfold functionality
 }
 
@@ -16,7 +16,7 @@ export interface Category {
   hideCheckedItems: boolean;
   showCheckboxes: boolean; // Controls whether items display as checkboxes or text notes
   sortCheckedToBottom: boolean; // When true, checked items move to bottom of list
-  items: TodoItem[];
+  items: TodoItemType[];
   subcategories: Category[];
   depth: number; // 1 to 5
 }

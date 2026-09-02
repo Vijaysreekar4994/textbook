@@ -1,20 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as dbStorage from './indexedDbStorage';
 import { GoogleDriveSyncService } from './googleDriveSync';
-import { MAX_DEPTH, type AppDocument, type Category, type TodoItem, type TodoList } from './types';
-import { Icon } from './components/Icon';
-import { Modal } from './components/Modal';
+import { Icon, Modal, Category as CategoryComponent, TodoItem } from './components';
+import { MAX_DEPTH, type AppDocument, type Category, type TodoItemType, type TodoList } from './types';
+import type { ModalConfig } from './components/types/todoItem.types';
 
-// Replace with actual Client ID configured in Google Cloud Console
-const GOOGLE_CLIENT_ID = '970309791343-hskt6htkclutahianitcppmmmn3ecg3q.apps.googleusercontent.com';
-
+// Google Drive Sync Service initialization with Client ID from environment variable
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const driveSyncService = new GoogleDriveSyncService(GOOGLE_CLIENT_ID);
 
 const generateUUID = () => crypto.randomUUID();
 
 // Sample Data Structure matching requirements: Food -> Non-Veg -> Mutton hierarchy
 const getInitialSampleData = (): TodoList[] => {
-  const orangesTodo: TodoItem = {
+  const orangesTodo: TodoItemType = {
     id: generateUUID(),
     title: 'Oranges',
     completed: false,
@@ -88,8 +87,8 @@ export default function App() {
   const [isDbAvailable, setIsDbAvailable] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Focus reference for auto-focusing newly created items
-  const focusInputIdRef = useRef<string | null>(null);
+  // Focus state for auto-focusing newly created items
+  const [focusInputId, setFocusInputId] = useState<string | null>(null);
 
   // Auto-sync debounce timer reference (Google API recommends 2-3 second buffer)
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,15 +98,7 @@ export default function App() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
   // Modal state for generic confirmations
-  const [modalConfig, setModalConfig] = useState<{
-    isOpen: boolean;
-    type: 'danger' | 'warning' | 'info';
-    title: string;
-    message: string;
-    onConfirm: () => void;
-    confirmLabel?: string;
-    cancelLabel?: string;
-  }>({
+  const [modalConfig, setModalConfig] = useState<ModalConfig>({
     isOpen: false,
     type: 'info',
     title: '',
@@ -175,17 +166,6 @@ export default function App() {
 
     updateSyncStateFromAuth();
   }, []);
-
-  // Dynamic input focus handling
-  useEffect(() => {
-    if (focusInputIdRef.current) {
-      const el = document.getElementById(`input-${focusInputIdRef.current}`);
-      if (el) {
-        el.focus();
-        focusInputIdRef.current = null;
-      }
-    }
-  }, [doc]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -508,6 +488,7 @@ export default function App() {
 
   const handleDeleteCategory = (categoryId: string, title: string) => {
     if (!doc) return;
+    setOpenDropdownId(null);
     setModalConfig({
       isOpen: true,
       type: 'danger',
@@ -566,14 +547,14 @@ export default function App() {
     isNestedList: boolean = false,
     parentListId?: string
   ) => {
-    const newTodo: TodoItem = {
+    const newTodo: TodoItemType = {
       id: generateUUID(),
       title: '',
       completed: false,
     };
 
     // Set focus to the new item
-    focusInputIdRef.current = newTodo.id;
+    setFocusInputId(newTodo.id);
 
     if (isNestedList && parentListId) {
       // Add to nested list
@@ -599,7 +580,7 @@ export default function App() {
   // Todo Items CRUD Logic
   /* Deprecated - now inlined in the Add Task button
   const handleAddTodoToCategory = (categoryId: string, currentDepth: number) => {
-    const newTodo: TodoItem = {
+    const newTodo: TodoItemType = {
       id: generateUUID(),
       title: '',
       completed: false,
@@ -618,9 +599,9 @@ export default function App() {
   const updateTodoInCategories = (
     categories: Category[],
     todoId: string,
-    mutation: (item: TodoItem) => Partial<TodoItem>
+    mutation: (item: TodoItemType) => Partial<TodoItemType>
   ): Category[] => {
-    const recursiveTodoUpdate = (items: TodoItem[]): TodoItem[] => {
+    const recursiveTodoUpdate = (items: TodoItemType[]): TodoItemType[] => {
       return items.map((item) => {
         if (item.id === todoId) {
           return { ...item, ...mutation(item) };
@@ -645,7 +626,7 @@ export default function App() {
   };
 
   const deleteTodoInCategories = (categories: Category[], todoId: string): Category[] => {
-    const recursiveTodoDelete = (items: TodoItem[]): TodoItem[] => {
+    const recursiveTodoDelete = (items: TodoItemType[]): TodoItemType[] => {
       return items
         .filter((item) => item.id !== todoId)
         .map((item) => {
@@ -668,41 +649,7 @@ export default function App() {
     });
   };
 
-  // Sort items: unchecked first, checked last (when sortCheckedToBottom is enabled)
-  const sortTodoItems = (items: TodoItem[], sortCheckedToBottom: boolean): TodoItem[] => {
-    if (!sortCheckedToBottom) {
-      return items;
-    }
-    // Create a copy and sort: unchecked items first, checked items last
-    return [...items].sort((a, b) => {
-      // If both are same completion status, maintain original order
-      if (a.completed === b.completed) {
-        return 0;
-      }
-      // Unchecked items (false) come before checked items (true)
-      return a.completed ? 1 : -1;
-    });
-  };
-
-  // Recursively uncheck all items in a category
-  const uncheckAllItems = (items: TodoItem[]): TodoItem[] => {
-    return items.map((item) => ({
-      ...item,
-      completed: false,
-      listItems: item.listItems ? uncheckAllItems(item.listItems) : undefined,
-    }));
-  };
-
-  // Check if any item (including nested) is completed
-  const hasAnyCompletedItems = (items: TodoItem[]): boolean => {
-    return items.some((item) => {
-      if (item.completed) return true;
-      if (item.listItems && hasAnyCompletedItems(item.listItems)) return true;
-      return false;
-    });
-  };
-
-  const handleUpdateTodo = (todoId: string, mutation: (item: TodoItem) => Partial<TodoItem>) => {
+  const handleUpdateTodo = (todoId: string, mutation: (item: TodoItemType) => Partial<TodoItemType>) => {
     if (!doc) return;
     const updatedDoc = {
       ...doc,
@@ -736,77 +683,6 @@ export default function App() {
     updateDocument(updatedDoc);
   };
 
-  // Recursive checklist compliance audit
-  const verifyAllChildrenCompleted = (item: TodoItem): boolean => {
-    if (!item.listItems || item.listItems.length === 0) {
-      return true;
-    }
-    return item.listItems.every((child) => {
-      if (child.isText) return true;
-      if (!child.completed) return false;
-      return verifyAllChildrenCompleted(child);
-    });
-  };
-
-  // Count completed items recursively
-  const countCompletedItems = (item: TodoItem): { completed: number; total: number } => {
-    if (!item.listItems || item.listItems.length === 0) {
-      return { completed: 0, total: 0 };
-    }
-    let completed = 0;
-    let total = 0;
-    item.listItems.forEach((child) => {
-      if (child.isText) return; // Skip text items
-      total += 1;
-      if (child.completed) {
-        completed += 1;
-      }
-      // Recursively count nested items
-      const nested = countCompletedItems(child);
-      completed += nested.completed;
-      total += nested.total;
-    });
-    return { completed, total };
-  };
-
-  // Count completed items in a category (including all subcategories)
-  // Only counts items when category is in checkbox mode (showCheckboxes: true)
-  const countCategoryItems = (category: Category): { completed: number; total: number } => {
-    let completed = 0;
-    let total = 0;
-
-    // Only count items if category is in checkbox mode
-    if (!category.showCheckboxes) {
-      return { completed: 0, total: 0 };
-    }
-
-    // Count items in this category
-    category.items.forEach((item) => {
-      if (item.isText) return; // Skip legacy text notes
-      if (item.isList) {
-        // Count items in the list
-        const listCounts = countCompletedItems(item);
-        completed += listCounts.completed;
-        total += listCounts.total;
-      } else {
-        // Regular checkbox item
-        total += 1;
-        if (item.completed) {
-          completed += 1;
-        }
-      }
-    });
-
-    // Count items in subcategories recursively
-    category.subcategories.forEach((sub) => {
-      const subCounts = countCategoryItems(sub);
-      completed += subCounts.completed;
-      total += subCounts.total;
-    });
-
-    return { completed, total };
-  };
-
   // Components Render Methods
   const renderSyncPanel = () => {
     return (
@@ -824,13 +700,13 @@ export default function App() {
         </div>
         <div className="sync-controls">
           {syncState === 'Signed out' || syncState === 'Local only' || syncState === 'Sync failed' ? (
-            <button className="btn btn-primary" onClick={handleSignIn}>
+            <button className="btn btn-primary" onClick={handleSignIn} type='button'>
               <Icon name="ri-plug-line" /> Connect Google Drive
             </button>
           ) : (
             <>
               <span className="auto-sync-indicator"><Icon name="ri-checkbox-circle-fill" color="#22c55e" /> Auto-sync enabled</span>
-              <button className="btn btn-outline" onClick={handleSignOut}>
+              <button className="btn btn-outline" onClick={handleSignOut} type='button'>
                 <Icon name="ri-logout-box-line" /> Sign Out
               </button>
             </>
@@ -846,263 +722,64 @@ export default function App() {
   };
 
   const renderTodoItem = (
-    item: TodoItem,
+    item: TodoItemType,
     hideChecked: boolean,
     showCheckboxes: boolean,
     sortCheckedToBottom: boolean = false,
     categoryId?: string,
     parentListId?: string
   ): React.ReactNode => {
-    // Hide checked items only when hideChecked is enabled and item is completed
-    if (hideChecked && item.completed && !item.isList) {
-      return null;
-    }
-
-    const hasChildren = item.listItems && item.listItems.length > 0;
-    const childrenAllCompleted = verifyAllChildrenCompleted(item);
-    // Safe deletion validator: lists can only be deleted if empty OR all descendants are completed
-    const deletionDisabled = item.isList && hasChildren && !childrenAllCompleted;
-
     return (
-      <div key={item.id} className="todo-item">
-        <div className="todo-row">
-          {/* Show checkbox only if showCheckboxes is true and item is not a list or text note */}
-          {showCheckboxes && !item.isList && !item.isText && (
-            <input
-              type="checkbox"
-              className="todo-checkbox"
-              checked={item.completed}
-              onChange={(e) => handleUpdateTodo(item.id, () => ({ completed: e.target.checked }))}
-            />
-          )}
-
-          {item.isList ? (
-            // List title with fold/unfold and item count (clickable, not input)
-            <div className="todo-title-list-wrapper">
-              <span
-                className="list-fold-toggle"
-                onClick={() => handleUpdateTodo(item.id, (t) => ({ collapsed: !t.collapsed }))}
-              >
-                <Icon name={item.collapsed ? "ri-arrow-right-s-line" : "ri-arrow-down-s-line"} className="fold-icon" />
-                <span className={`todo-title-text ${item.completed ? 'completed' : ''}`}>
-                  {item.title || 'Untitled List'}
-                </span>
-                {(() => {
-                  const counts = countCompletedItems(item);
-                  return (
-                    <span className="list-items-count">
-                      ({counts.completed}/{counts.total} <Icon name="ri-check-line" className="checkmark" />)
-                    </span>
-                  );
-                })()}
-              </span>
-            </div>
-          ) : showCheckboxes ? (
-            // Checkbox mode: text input for task title
-            <input
-              id={`input-${item.id}`}
-              type="text"
-              className={`todo-title-input ${item.completed ? 'completed' : ''}`}
-              value={item.title}
-              placeholder="Task name..."
-              onChange={(e) => handleUpdateTodo(item.id, () => ({ title: e.target.value }))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  // If current item is empty, just delete it and don't create new one
-                  if (!item.title.trim()) {
-                    handleDeleteTodo(item.id);
-                  } else {
-                    const isNestedList = !!parentListId;
-                    handleAddTodoAfter(categoryId || '', item.id, isNestedList, parentListId);
-                  }
-                }
-              }}
-              onBlur={() => {
-                if (!item.title.trim()) {
-                  handleDeleteTodo(item.id);
-                }
-              }}
-            />
-          ) : (
-            // Text mode: textarea for notes
-            <textarea
-              id={`input-${item.id}`}
-              className="todo-notes"
-              value={item.text || item.title}
-              placeholder="Enter notes..."
-              onChange={(e) => handleUpdateTodo(item.id, () => ({ text: e.target.value, title: e.target.value }))}
-              onBlur={() => {
-                if (!item.text?.trim() && !item.title?.trim()) {
-                  handleDeleteTodo(item.id);
-                }
-              }}
-            />
-          )}
-
-          {/* Delete Button with Modal */}
-          {!item.isList && (
-            <button
-              className="delete-icon-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                setModalConfig({
-                  isOpen: true,
-                  type: 'danger',
-                  title: 'Delete Task',
-                  message: `Is it okay to delete "${item.title || 'this'}" item?`,
-                  onConfirm: () => {
-                    handleDeleteTodo(item.id);
-                  },
-                  confirmLabel: 'Delete',
-                  cancelLabel: 'Cancel',
-                });
-              }}
-              disabled={deletionDisabled}
-            >
-              <Icon name="ri-delete-bin-line" />
-            </button>
-          )}
-        </div>
-
-        {item.isList && item.listItems && (
-          <div className="nested-list">
-            {!item.collapsed && (
-              <>
-                {sortTodoItems(item.listItems, sortCheckedToBottom).map((child) => renderTodoItem(child, hideChecked, showCheckboxes, sortCheckedToBottom, categoryId, item.id))}
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <TodoItem
+        key={item.id}
+        item={item}
+        hideChecked={hideChecked}
+        showCheckboxes={showCheckboxes}
+        sortCheckedToBottom={sortCheckedToBottom}
+        categoryId={categoryId}
+        parentListId={parentListId}
+        focusInputId={focusInputId}
+        setFocusInputId={setFocusInputId}
+        onUpdateTodo={handleUpdateTodo}
+        onDeleteTodo={handleDeleteTodo}
+        onAddTodoAfter={handleAddTodoAfter}
+        onSetModalConfig={setModalConfig}
+        setOpenDropdownId={setOpenDropdownId}
+        renderTodoItem={renderTodoItem}
+      />
     );
   };
 
   const renderCategory = (cat: Category): React.ReactNode => {
-    const counts = countCategoryItems(cat);
-
     return (
-      <div key={cat.id} className={`category-card depth-${cat.depth}`}>
-        <div className="category-header">
-          <div className="category-meta">
-            <button className="category-header-title-button" onClick={() => handleUpdateCategory(cat.id, (c) => ({ collapsed: !c.collapsed }))}>
-              <Icon name={cat.collapsed ? "ri-arrow-right-s-line" : "ri-arrow-down-s-line"} className="fold-icon" />
-              <span className="category-title">{cat.title}</span>
-            </button>
-            {/* <span className="badge-depth">Lvl {cat.depth}</span> */}
-            {counts.total > 0 && (
-              <span className="category-count">
-                ({counts.completed}/{counts.total} <Icon name="ri-check-line" className="checkmark" />)
-              </span>
-            )}
-            <button className="btn btn-add-task" onClick={(e) => {
-              e.stopPropagation();
-              // Expand category and add todo in a single state update
-              const newTodoId = generateUUID();
-              focusInputIdRef.current = newTodoId;
-              handleUpdateCategory(cat.id, (c) => ({
-                collapsed: false,
-                items: [{
-                  id: newTodoId,
-                  title: '',
-                  completed: false,
-                  depth: cat.depth,
-                }, ...c.items],
-              }));
-            }}>
-              {/* add a task */}
-              <Icon name="ri-add-circle-fill" className="icon-primary" />
-            </button>
-          </div>
-
-          <div className={`dropdown ${openDropdownId === cat.id ? 'open' : ''}`}>
-            <button
-              className="dropdown-trigger"
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpenDropdownId(openDropdownId === cat.id ? null : cat.id);
-              }}
-            >
-              <Icon name="ri-settings-5-line" />
-            </button>
-            <div className="dropdown-menu" onClick={(e) => e.stopPropagation()}>
-              <button onClick={(e) => {
-                e.stopPropagation();
-                const newTitle = prompt('Rename category:', cat.title);
-                if (newTitle && newTitle.trim()) {
-                  handleUpdateCategory(cat.id, () => ({ title: newTitle.trim() }));
-                }
-                setOpenDropdownId(null);
-              }}>
-                Rename
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleUpdateCategory(cat.id, (c) => ({ hideCheckedItems: !c.hideCheckedItems }));
-                  setOpenDropdownId(null);
-                }}
-              // disabled={!cat.showCheckboxes}
-              >
-                {cat.hideCheckedItems ? 'Show All' : 'Hide Checked'}
-              </button>
-              {cat.showCheckboxes && (
-                <button onClick={(e) => {
-                  e.stopPropagation();
-                  handleUpdateCategory(cat.id, (c) => ({ sortCheckedToBottom: !c.sortCheckedToBottom }));
-                  setOpenDropdownId(null);
-                }}
-                // disabled={!cat.showCheckboxes}
-                >
-                  <Icon name={cat.sortCheckedToBottom ? "ri-checkbox-fill" : "ri-checkbox-blank-line"} /> {cat.sortCheckedToBottom ? 'Show checked at bottom' : 'Show checked at bottom'}
-                </button>)}
-              <button onClick={(e) => {
-                e.stopPropagation();
-                handleUpdateCategory(cat.id, (c) => ({ showCheckboxes: !c.showCheckboxes }));
-                setOpenDropdownId(null);
-              }}>
-                {cat.showCheckboxes ? 'Switch to NOTES mode' : 'Switch to TASK Mode'}
-              </button>
-              {cat.showCheckboxes && hasAnyCompletedItems(cat.items) && (
-                <button onClick={(e) => {
-                  e.stopPropagation();
-                  handleUpdateCategory(cat.id, (c) => ({
-                    items: uncheckAllItems(c.items)
-                  }));
-                  setOpenDropdownId(null);
-                }}>
-                  Uncheck all items
-                </button>
-              )}
-              <button disabled={cat.depth >= MAX_DEPTH} onClick={(e) => {
-                e.stopPropagation();
-                handleAddSubcategory(cat);
-                setOpenDropdownId(null);
-              }}>
-                Add Subcategory
-              </button>
-              <button className="delete-action" onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteCategory(cat.id, cat.title);
-                setOpenDropdownId(null);
-              }}>
-                Delete Category
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {!cat.collapsed && (
-          <div className="category-body">
-            {/* <button className="btn btn-add" onClick={() => handleAddTodoToCategory(cat.id, cat.depth)}>
-              Add a task
-            </button> */}
-            {sortTodoItems([...cat.items].reverse(), cat.sortCheckedToBottom).map((item) => renderTodoItem(item, cat.hideCheckedItems, cat.showCheckboxes, cat.sortCheckedToBottom, cat.id))}
-            {cat.subcategories.map((sub) => renderCategory(sub))}
-          </div>
-        )}
-      </div>
+      <CategoryComponent
+        key={cat.id}
+        category={cat}
+        onUpdateCategory={handleUpdateCategory}
+        onAddSubcategory={handleAddSubcategory}
+        onDeleteCategory={handleDeleteCategory}
+        openDropdownId={openDropdownId}
+        setOpenDropdownId={setOpenDropdownId}
+        setFocusInputId={setFocusInputId}
+        renderTodoItem={renderTodoItem}
+        renderCategory={renderCategory}
+      />
     );
+  };
+
+  const handleTabClick = (listId: string) => {
+    setActiveListId(listId);
+    if (doc) {
+      updateDocument({ ...doc, activeListId: listId }, false);
+    }
+  };
+
+  const handleTabDelete = (listId: string) => {
+    handleDeleteList(listId);
+  };
+
+  const handleModalClose = () => {
+    setModalConfig({ ...modalConfig, isOpen: false });
   };
 
   const activeList = getActiveList();
@@ -1126,18 +803,15 @@ export default function App() {
               key={list.id}
               className={`tab-item ${list.id === activeListId ? 'active' : ''}`}
             >
-              <span onClick={() => {
-                setActiveListId(list.id);
-                if (doc) updateDocument({ ...doc, activeListId: list.id }, false);
-              }}>
+              <button className='tab-title-button' onClick={() => handleTabClick(list.id)} type="button">
                 {list.title}
-              </span>
-              <button className="tab-delete" onClick={() => handleDeleteList(list.id)}>
+              </button>
+              <button className="tab-delete" onClick={() => handleTabDelete(list.id)} type='button'>
                 <Icon name="ri-close-line" />
               </button>
             </div>
           ))}
-          <button className="tab-item add-tab" onClick={handleAddList}>
+          <button className="tab-item add-tab" onClick={handleAddList} type='button'>
             <Icon name="ri-add-line" /> New List
           </button>
         </div>
@@ -1148,7 +822,7 @@ export default function App() {
         {activeList ? (
           <div className="list-wrapper">
             <div className="list-header-row">
-              <button className="btn btn-outline" onClick={handleAddRootCategory}>
+              <button className="btn btn-outline" onClick={handleAddRootCategory} type='button'>
                 <Icon name="ri-add-line" /> New Category
               </button>
             </div>
@@ -1176,7 +850,7 @@ export default function App() {
       {/* Generic Modal for confirmations */}
       <Modal
         isOpen={modalConfig.isOpen}
-        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        onClose={handleModalClose}
         title={modalConfig.title}
         message={modalConfig.message}
         type={modalConfig.type}
