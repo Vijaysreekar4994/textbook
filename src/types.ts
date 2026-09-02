@@ -7,7 +7,6 @@ export interface TodoItem {
   isList?: boolean;
   listItems?: TodoItem[];
   collapsed?: boolean; // For fold/unfold functionality
-  depth: number; // 1 to 3
 }
 
 export interface Category {
@@ -16,6 +15,7 @@ export interface Category {
   collapsed: boolean;
   hideCheckedItems: boolean;
   showCheckboxes: boolean; // Controls whether items display as checkboxes or text notes
+  sortCheckedToBottom: boolean; // When true, checked items move to bottom of list
   items: TodoItem[];
   subcategories: Category[];
   depth: number; // 1 to 5

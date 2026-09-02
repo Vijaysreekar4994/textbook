@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as dbStorage from './indexedDbStorage';
 import { GoogleDriveSyncService } from './googleDriveSync';
 import { MAX_DEPTH, type AppDocument, type Category, type TodoItem, type TodoList } from './types';
+import { Icon } from './components/Icon';
+import { Modal } from './components/Modal';
 
 // Replace with actual Client ID configured in Google Cloud Console
 const GOOGLE_CLIENT_ID = '970309791343-hskt6htkclutahianitcppmmmn3ecg3q.apps.googleusercontent.com';
@@ -12,20 +14,20 @@ const generateUUID = () => crypto.randomUUID();
 
 // Sample Data Structure matching requirements: Food -> Non-Veg -> Mutton hierarchy
 const getInitialSampleData = (): TodoList[] => {
-  const muttonTodo: TodoItem = {
+  const orangesTodo: TodoItem = {
     id: generateUUID(),
-    title: 'Buy fresh mutton chops',
+    title: 'Oranges',
     completed: false,
-    depth: 3,
   };
 
-  const nonVegSubcat: Category = {
+  const fruitsSubcat: Category = {
     id: generateUUID(),
-    title: 'Non-Veg',
+    title: 'Fruits',
     collapsed: false,
     hideCheckedItems: false,
     showCheckboxes: true, // Default: show checkboxes
-    items: [muttonTodo],
+    sortCheckedToBottom: false, // Default: don't sort checked items to bottom
+    items: [orangesTodo],
     subcategories: [],
     depth: 2,
   };
@@ -36,20 +38,21 @@ const getInitialSampleData = (): TodoList[] => {
     collapsed: false,
     hideCheckedItems: false,
     showCheckboxes: true, // Default: show checkboxes
+    sortCheckedToBottom: false, // Default: don't sort checked items to bottom
     items: [],
-    subcategories: [nonVegSubcat],
+    subcategories: [fruitsSubcat],
     depth: 1,
-  };
-
-  const foodList: TodoList = {
-    id: generateUUID(),
-    title: 'Food',
-    categories: [foodCategory],
   };
 
   const shoppingList: TodoList = {
     id: generateUUID(),
     title: 'Shopping',
+    categories: [foodCategory],
+  };
+
+  const workList: TodoList = {
+    id: generateUUID(),
+    title: 'Work',
     categories: [],
   };
 
@@ -59,7 +62,7 @@ const getInitialSampleData = (): TodoList[] => {
     categories: [],
   };
 
-  return [foodList, shoppingList, personalList];
+  return [shoppingList, workList, personalList];
 };
 
 const createNewDocument = (): AppDocument => {
@@ -95,6 +98,43 @@ export default function App() {
   // Track which dropdown is currently open (for todo items and categories)
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
+  // Modal state for generic confirmations
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    type: 'danger' | 'warning' | 'info';
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmLabel?: string;
+    cancelLabel?: string;
+  }>({
+    isOpen: false,
+    type: 'info',
+    title: '',
+    message: '',
+    onConfirm: () => { },
+  });
+
+  // Migration: Ensure all categories have the sortCheckedToBottom property
+  const migrateCategories = (categories: Category[]): Category[] => {
+    return categories.map((cat) => ({
+      ...cat,
+      sortCheckedToBottom: cat.sortCheckedToBottom ?? false, // Default to false for backward compatibility
+      subcategories: migrateCategories(cat.subcategories),
+    }));
+  };
+
+  // Migration: Ensure all lists have categories with the new property
+  const migrateDocument = (doc: AppDocument): AppDocument => {
+    return {
+      ...doc,
+      lists: doc.lists.map((list) => ({
+        ...list,
+        categories: migrateCategories(list.categories),
+      })),
+    };
+  };
+
   // Initialize App & Database
   useEffect(() => {
     async function loadApp() {
@@ -104,8 +144,9 @@ export default function App() {
 
         const localDoc = await dbStorage.loadDocument();
         if (localDoc) {
-          setDoc(localDoc);
-          setActiveListId(localDoc.activeListId || localDoc.lists[0]?.id || '');
+          const migratedDoc = migrateDocument(localDoc);
+          setDoc(migratedDoc);
+          setActiveListId(migratedDoc.activeListId || migratedDoc.lists[0]?.id || '');
         } else {
           const initialDoc = createNewDocument();
           initialDoc.activeListId = initialDoc.lists[0].id;
@@ -151,7 +192,7 @@ export default function App() {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       // Close dropdown if clicking outside dropdown AND outside category "Add a task" button
-      if (!target.closest('.dropdown') && !target.closest('.btn-add')) {
+      if (!target.closest('.dropdown') && !target.closest('.btn-add-task')) {
         setOpenDropdownId(null);
       }
     };
@@ -161,35 +202,6 @@ export default function App() {
       document.removeEventListener('click', handleClickOutside);
     };
   }, []);
-
-  // Auto-sync on every change with debounce (Google API rate limit protection)
-  useEffect(() => {
-    // Clear any pending sync timer
-    if (syncTimerRef.current) {
-      clearTimeout(syncTimerRef.current);
-    }
-
-    // Only auto-sync if:
-    // - Document exists
-    // - User is signed in (authorized)
-    // - Document has unsynced changes (isDirty)
-    // - Not currently syncing
-    if (!doc || !driveSyncService.isAuthorized() || !doc.syncMetadata.isDirty || isSyncingRef.current) {
-      return;
-    }
-
-    // Debounce sync by 2 seconds (Google API recommendation to batch changes)
-    syncTimerRef.current = setTimeout(() => {
-      performSynchronization();
-    }, 2000);
-
-    // Cleanup: cancel pending sync on unmount or dependency change
-    return () => {
-      if (syncTimerRef.current) {
-        clearTimeout(syncTimerRef.current);
-      }
-    };
-  }, [doc, doc?.syncMetadata.isDirty]);
 
   // Handle local state changes & database persistence
   const updateDocument = async (updatedDoc: AppDocument, isUserAction = true) => {
@@ -207,31 +219,6 @@ export default function App() {
     setDoc(finalDoc);
     const saved = await dbStorage.saveDocument(finalDoc);
     setIsDbAvailable(saved);
-  };
-
-  const getActiveList = (): TodoList | undefined => {
-    return doc?.lists.find((l) => l.id === activeListId);
-  };
-
-  // Google OAuth flow
-  const handleSignIn = () => {
-    setSyncState('Signing in');
-    driveSyncService.authorize(
-      async () => {
-        setSyncState('Syncing');
-        await performSynchronization();
-      },
-      (error) => {
-        console.error('Sign-in failed:', error);
-        setSyncState('Sync failed');
-        alert(`Google Authentication Failed: ${error}`);
-      }
-    );
-  };
-
-  const handleSignOut = () => {
-    driveSyncService.clearToken();
-    setSyncState('Signed out');
   };
 
   // Safe 3-Way Google Drive Synchronization Protocol
@@ -337,6 +324,59 @@ export default function App() {
     }
   };
 
+  // Auto-sync on every change with debounce (Google API rate limit protection)
+  useEffect(() => {
+    // Clear any pending sync timer
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+    }
+
+    // Only auto-sync if:
+    // - Document exists
+    // - User is signed in (authorized)
+    // - Document has unsynced changes (isDirty)
+    // - Not currently syncing
+    if (!doc || !driveSyncService.isAuthorized() || !doc.syncMetadata.isDirty || isSyncingRef.current) {
+      return;
+    }
+
+    // Debounce sync by 2 seconds (Google API recommendation to batch changes)
+    syncTimerRef.current = setTimeout(() => {
+      performSynchronization();
+    }, 2000);
+
+    // Cleanup: cancel pending sync on unmount or dependency change
+    return () => {
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+      }
+    };
+  }, [doc, doc?.syncMetadata.isDirty]);
+
+  const getActiveList = (): TodoList | undefined => {
+    return doc?.lists.find((l) => l.id === activeListId);
+  };
+
+  // Google OAuth flow
+  const handleSignIn = () => {
+    setSyncState('Signing in');
+    driveSyncService.authorize(
+      async () => {
+        setSyncState('Syncing');
+        await performSynchronization();
+      },
+      (error) => {
+        console.error('Sign-in failed:', error);
+        setSyncState('Sync failed');
+        alert(`Google Authentication Failed: ${error}`);
+      }
+    );
+  };
+
+  const handleSignOut = () => {
+    driveSyncService.clearToken();
+    setSyncState('Signed out');
+  };
 
   // list actions
   const handleAddList = () => {
@@ -364,19 +404,25 @@ export default function App() {
     const target = doc.lists.find((l) => l.id === listId);
     if (!target) return;
 
-    if (
-      confirm(`Are you absolutely sure you want to delete the list "${target.title}" and all its contents?`)
-    ) {
-      const remainingLists = doc.lists.filter((l) => l.id !== listId);
-      const fallbackListId = remainingLists[0]?.id || '';
-      const updatedDoc = {
-        ...doc,
-        lists: remainingLists,
-        activeListId: fallbackListId,
-      };
-      setActiveListId(fallbackListId);
-      updateDocument(updatedDoc);
-    }
+    setModalConfig({
+      isOpen: true,
+      type: 'danger',
+      title: 'Delete List',
+      message: `Are you absolutely sure you want to delete the list "${target.title}" and all its contents?`,
+      onConfirm: () => {
+        const remainingLists = doc.lists.filter((l) => l.id !== listId);
+        const fallbackListId = remainingLists[0]?.id || '';
+        const updatedDoc = {
+          ...doc,
+          lists: remainingLists,
+          activeListId: fallbackListId,
+        };
+        setActiveListId(fallbackListId);
+        updateDocument(updatedDoc);
+      },
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
   };
 
   // Add Category at Root Level
@@ -391,6 +437,7 @@ export default function App() {
       collapsed: false,
       hideCheckedItems: false,
       showCheckboxes: true, // Default: show checkboxes
+      sortCheckedToBottom: false, // Default: don't sort checked items to bottom
       items: [],
       subcategories: [],
       depth: 1,
@@ -461,21 +508,29 @@ export default function App() {
 
   const handleDeleteCategory = (categoryId: string, title: string) => {
     if (!doc) return;
-    if (confirm(`Delete the category "${title}" and all its subcategories and checklist items?`)) {
-      const updatedDoc = {
-        ...doc,
-        lists: doc.lists.map((l) => {
-          if (l.id === activeListId) {
-            return {
-              ...l,
-              categories: deleteCategoryRecursive(l.categories, categoryId),
-            };
-          }
-          return l;
-        }),
-      };
-      updateDocument(updatedDoc);
-    }
+    setModalConfig({
+      isOpen: true,
+      type: 'danger',
+      title: 'Delete Category',
+      message: `Delete the category "${title}" and all its subcategories and checklist items?`,
+      onConfirm: () => {
+        const updatedDoc = {
+          ...doc,
+          lists: doc.lists.map((l) => {
+            if (l.id === activeListId) {
+              return {
+                ...l,
+                categories: deleteCategoryRecursive(l.categories, categoryId),
+              };
+            }
+            return l;
+          }),
+        };
+        updateDocument(updatedDoc);
+      },
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    });
   };
 
   const handleAddSubcategory = (parentCategory: Category) => {
@@ -493,6 +548,7 @@ export default function App() {
       collapsed: false,
       hideCheckedItems: parentCategory.hideCheckedItems,
       showCheckboxes: parentCategory.showCheckboxes, // Inherit from parent
+      sortCheckedToBottom: parentCategory.sortCheckedToBottom, // Inherit from parent
       items: [],
       subcategories: [],
       depth: parentCategory.depth + 1,
@@ -501,6 +557,43 @@ export default function App() {
     handleUpdateCategory(parentCategory.id, (cat) => ({
       subcategories: [...cat.subcategories, newSub],
     }));
+  };
+
+  // Add new todo item after a specific item (for Enter key functionality)
+  const handleAddTodoAfter = (
+    categoryId: string,
+    afterItemId: string,
+    isNestedList: boolean = false,
+    parentListId?: string
+  ) => {
+    const newTodo: TodoItem = {
+      id: generateUUID(),
+      title: '',
+      completed: false,
+    };
+
+    // Set focus to the new item
+    focusInputIdRef.current = newTodo.id;
+
+    if (isNestedList && parentListId) {
+      // Add to nested list
+      handleUpdateTodo(parentListId, (item) => {
+        const existingItems = item.listItems || [];
+        const newItemIndex = existingItems.findIndex((i) => i.id === afterItemId);
+        const newItems = [...existingItems];
+        newItems.splice(newItemIndex + 1, 0, newTodo);
+        return { listItems: newItems };
+      });
+    } else {
+      // Add to category
+      handleUpdateCategory(categoryId, (cat) => {
+        const existingItems = [...cat.items].reverse(); // Maintain reverse order
+        const newItemIndex = existingItems.findIndex((i) => i.id === afterItemId);
+        const newItems = [...existingItems];
+        newItems.splice(newItemIndex + 1, 0, newTodo);
+        return { items: newItems.reverse() };
+      });
+    }
   };
 
   // Todo Items CRUD Logic
@@ -572,6 +665,40 @@ export default function App() {
         items: recursiveTodoDelete(cat.items),
         subcategories: deleteTodoInCategories(cat.subcategories, todoId),
       };
+    });
+  };
+
+  // Sort items: unchecked first, checked last (when sortCheckedToBottom is enabled)
+  const sortTodoItems = (items: TodoItem[], sortCheckedToBottom: boolean): TodoItem[] => {
+    if (!sortCheckedToBottom) {
+      return items;
+    }
+    // Create a copy and sort: unchecked items first, checked items last
+    return [...items].sort((a, b) => {
+      // If both are same completion status, maintain original order
+      if (a.completed === b.completed) {
+        return 0;
+      }
+      // Unchecked items (false) come before checked items (true)
+      return a.completed ? 1 : -1;
+    });
+  };
+
+  // Recursively uncheck all items in a category
+  const uncheckAllItems = (items: TodoItem[]): TodoItem[] => {
+    return items.map((item) => ({
+      ...item,
+      completed: false,
+      listItems: item.listItems ? uncheckAllItems(item.listItems) : undefined,
+    }));
+  };
+
+  // Check if any item (including nested) is completed
+  const hasAnyCompletedItems = (items: TodoItem[]): boolean => {
+    return items.some((item) => {
+      if (item.completed) return true;
+      if (item.listItems && hasAnyCompletedItems(item.listItems)) return true;
+      return false;
     });
   };
 
@@ -698,27 +825,34 @@ export default function App() {
         <div className="sync-controls">
           {syncState === 'Signed out' || syncState === 'Local only' || syncState === 'Sync failed' ? (
             <button className="btn btn-primary" onClick={handleSignIn}>
-              🔌 Connect Google Drive
+              <Icon name="ri-plug-line" /> Connect Google Drive
             </button>
           ) : (
             <>
-              <span className="auto-sync-indicator">🟢 Auto-sync enabled</span>
+              <span className="auto-sync-indicator"><Icon name="ri-checkbox-circle-fill" color="#22c55e" /> Auto-sync enabled</span>
               <button className="btn btn-outline" onClick={handleSignOut}>
-                🚪 Sign Out
+                <Icon name="ri-logout-box-line" /> Sign Out
               </button>
             </>
           )}
         </div>
         {!isDbAvailable && (
           <div className="db-alert">
-            ⚠️ Persistence Unavailable. Running in local memory mode. Reload browser to retry.
+            <Icon name="ri-alert-line" /> Persistence Unavailable. Running in local memory mode. Reload browser to retry.
           </div>
         )}
       </div>
     );
   };
 
-  const renderTodoItem = (item: TodoItem, hideChecked: boolean, showCheckboxes: boolean): React.ReactNode => {
+  const renderTodoItem = (
+    item: TodoItem,
+    hideChecked: boolean,
+    showCheckboxes: boolean,
+    sortCheckedToBottom: boolean = false,
+    categoryId?: string,
+    parentListId?: string
+  ): React.ReactNode => {
     // Hide checked items only when hideChecked is enabled and item is completed
     if (hideChecked && item.completed && !item.isList) {
       return null;
@@ -730,7 +864,7 @@ export default function App() {
     const deletionDisabled = item.isList && hasChildren && !childrenAllCompleted;
 
     return (
-      <div key={item.id} className={`todo-item depth-${item.depth}`}>
+      <div key={item.id} className="todo-item">
         <div className="todo-row">
           {/* Show checkbox only if showCheckboxes is true and item is not a list or text note */}
           {showCheckboxes && !item.isList && !item.isText && (
@@ -749,7 +883,7 @@ export default function App() {
                 className="list-fold-toggle"
                 onClick={() => handleUpdateTodo(item.id, (t) => ({ collapsed: !t.collapsed }))}
               >
-                <span className="fold-icon">{item.collapsed ? '▶' : '▼'}</span>
+                <Icon name={item.collapsed ? "ri-arrow-right-s-line" : "ri-arrow-down-s-line"} className="fold-icon" />
                 <span className={`todo-title-text ${item.completed ? 'completed' : ''}`}>
                   {item.title || 'Untitled List'}
                 </span>
@@ -757,7 +891,7 @@ export default function App() {
                   const counts = countCompletedItems(item);
                   return (
                     <span className="list-items-count">
-                      ({counts.completed}/{counts.total} <span className="checkmark">✓</span>)
+                      ({counts.completed}/{counts.total} <Icon name="ri-check-line" className="checkmark" />)
                     </span>
                   );
                 })()}
@@ -772,6 +906,18 @@ export default function App() {
               value={item.title}
               placeholder="Task name..."
               onChange={(e) => handleUpdateTodo(item.id, () => ({ title: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  // If current item is empty, just delete it and don't create new one
+                  if (!item.title.trim()) {
+                    handleDeleteTodo(item.id);
+                  } else {
+                    const isNestedList = !!parentListId;
+                    handleAddTodoAfter(categoryId || '', item.id, isNestedList, parentListId);
+                  }
+                }
+              }}
               onBlur={() => {
                 if (!item.title.trim()) {
                   handleDeleteTodo(item.id);
@@ -794,57 +940,36 @@ export default function App() {
             />
           )}
 
-          {/* Todo Dropdown Menu */}
-          <div className={`dropdown ${openDropdownId === item.id ? 'open' : ''}`}>
+          {/* Delete Button with Modal */}
+          {!item.isList && (
             <button
-              className="dropdown-trigger"
+              className="delete-icon-btn"
               onClick={(e) => {
                 e.stopPropagation();
-                setOpenDropdownId(openDropdownId === item.id ? null : item.id);
+                setModalConfig({
+                  isOpen: true,
+                  type: 'danger',
+                  title: 'Delete Task',
+                  message: `Is it okay to delete "${item.title || 'this'}" item?`,
+                  onConfirm: () => {
+                    handleDeleteTodo(item.id);
+                  },
+                  confirmLabel: 'Delete',
+                  cancelLabel: 'Cancel',
+                });
               }}
+              disabled={deletionDisabled}
             >
-              ⋮
+              <Icon name="ri-delete-bin-line" />
             </button>
-            <div className="dropdown-menu" onClick={(e) => e.stopPropagation()}>
-              {item.isList && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const newTitle = prompt('Rename list:', item.title);
-                    if (newTitle && newTitle.trim()) {
-                      handleUpdateTodo(item.id, () => ({ title: newTitle.trim() }));
-                    }
-                    setOpenDropdownId(null);
-                  }}
-                >
-                  Rename List
-                </button>
-              )}
-              <button
-                className="delete-action"
-                disabled={deletionDisabled}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteTodo(item.id);
-                  setOpenDropdownId(null);
-                }}
-              >
-                Delete Item
-              </button>
-              {deletionDisabled && (
-                <div className="validation-tooltip">
-                  Deletion disabled: All nested subtasks must exist and be checked.
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
 
         {item.isList && item.listItems && (
           <div className="nested-list">
             {!item.collapsed && (
               <>
-                {item.listItems.map((child) => renderTodoItem(child, hideChecked, showCheckboxes))}
+                {sortTodoItems(item.listItems, sortCheckedToBottom).map((child) => renderTodoItem(child, hideChecked, showCheckboxes, sortCheckedToBottom, categoryId, item.id))}
               </>
             )}
           </div>
@@ -861,16 +986,16 @@ export default function App() {
         <div className="category-header">
           <div className="category-meta">
             <button className="category-header-title-button" onClick={() => handleUpdateCategory(cat.id, (c) => ({ collapsed: !c.collapsed }))}>
-              <span className="fold-icon">{cat.collapsed ? '▶' : '▼'}</span>
+              <Icon name={cat.collapsed ? "ri-arrow-right-s-line" : "ri-arrow-down-s-line"} className="fold-icon" />
               <span className="category-title">{cat.title}</span>
             </button>
             {/* <span className="badge-depth">Lvl {cat.depth}</span> */}
             {counts.total > 0 && (
               <span className="category-count">
-                ({counts.completed}/{counts.total} <span className="checkmark">✓</span>)
+                ({counts.completed}/{counts.total} <Icon name="ri-check-line" className="checkmark" />)
               </span>
             )}
-            <button className="btn btn-add" onClick={(e) => {
+            <button className="btn btn-add-task" onClick={(e) => {
               e.stopPropagation();
               // Expand category and add todo in a single state update
               const newTodoId = generateUUID();
@@ -884,8 +1009,9 @@ export default function App() {
                   depth: cat.depth,
                 }, ...c.items],
               }));
-              }}>
-              ✚
+            }}>
+              {/* add a task */}
+              <Icon name="ri-add-circle-fill" className="icon-primary" />
             </button>
           </div>
 
@@ -897,7 +1023,7 @@ export default function App() {
                 setOpenDropdownId(openDropdownId === cat.id ? null : cat.id);
               }}
             >
-              ⋮
+              <Icon name="ri-settings-5-line" />
             </button>
             <div className="dropdown-menu" onClick={(e) => e.stopPropagation()}>
               <button onClick={(e) => {
@@ -916,17 +1042,38 @@ export default function App() {
                   handleUpdateCategory(cat.id, (c) => ({ hideCheckedItems: !c.hideCheckedItems }));
                   setOpenDropdownId(null);
                 }}
-                disabled={!cat.showCheckboxes}
+              // disabled={!cat.showCheckboxes}
               >
-                {cat.hideCheckedItems ? 'Show Checked' : 'Hide Checked'}
+                {cat.hideCheckedItems ? 'Show All' : 'Hide Checked'}
               </button>
+              {cat.showCheckboxes && (
+                <button onClick={(e) => {
+                  e.stopPropagation();
+                  handleUpdateCategory(cat.id, (c) => ({ sortCheckedToBottom: !c.sortCheckedToBottom }));
+                  setOpenDropdownId(null);
+                }}
+                // disabled={!cat.showCheckboxes}
+                >
+                  <Icon name={cat.sortCheckedToBottom ? "ri-checkbox-fill" : "ri-checkbox-blank-line"} /> {cat.sortCheckedToBottom ? 'Show checked at bottom' : 'Show checked at bottom'}
+                </button>)}
               <button onClick={(e) => {
                 e.stopPropagation();
                 handleUpdateCategory(cat.id, (c) => ({ showCheckboxes: !c.showCheckboxes }));
                 setOpenDropdownId(null);
               }}>
-                {cat.showCheckboxes ? 'Hide Checkboxes (Text Mode)' : 'Show Checkboxes (Task Mode)'}
+                {cat.showCheckboxes ? 'Switch to NOTES mode' : 'Switch to TASK Mode'}
               </button>
+              {cat.showCheckboxes && hasAnyCompletedItems(cat.items) && (
+                <button onClick={(e) => {
+                  e.stopPropagation();
+                  handleUpdateCategory(cat.id, (c) => ({
+                    items: uncheckAllItems(c.items)
+                  }));
+                  setOpenDropdownId(null);
+                }}>
+                  Uncheck all items
+                </button>
+              )}
               <button disabled={cat.depth >= MAX_DEPTH} onClick={(e) => {
                 e.stopPropagation();
                 handleAddSubcategory(cat);
@@ -950,7 +1097,7 @@ export default function App() {
             {/* <button className="btn btn-add" onClick={() => handleAddTodoToCategory(cat.id, cat.depth)}>
               Add a task
             </button> */}
-            {[...cat.items].reverse().map((item) => renderTodoItem(item, cat.hideCheckedItems, cat.showCheckboxes))}
+            {sortTodoItems([...cat.items].reverse(), cat.sortCheckedToBottom).map((item) => renderTodoItem(item, cat.hideCheckedItems, cat.showCheckboxes, cat.sortCheckedToBottom, cat.id))}
             {cat.subcategories.map((sub) => renderCategory(sub))}
           </div>
         )}
@@ -985,11 +1132,13 @@ export default function App() {
               }}>
                 {list.title}
               </span>
-              <button className="tab-delete" onClick={() => handleDeleteList(list.id)}>×</button>
+              <button className="tab-delete" onClick={() => handleDeleteList(list.id)}>
+                <Icon name="ri-close-line" />
+              </button>
             </div>
           ))}
           <button className="tab-item add-tab" onClick={handleAddList}>
-            ✚ New List
+            <Icon name="ri-add-line" /> New List
           </button>
         </div>
       </nav>
@@ -999,14 +1148,14 @@ export default function App() {
         {activeList ? (
           <div className="list-wrapper">
             <div className="list-header-row">
-              <button className="btn btn-add" onClick={handleAddRootCategory}>
-                ✚ New Category
+              <button className="btn btn-outline" onClick={handleAddRootCategory}>
+                <Icon name="ri-add-line" /> New Category
               </button>
             </div>
 
             {activeList.categories.length === 0 ? (
               <div className="empty-state">
-                No categories created yet in this list. Click "New Category" to get started.
+                Click "New Category" to get started.
               </div>
             ) : (
               <div className="categories-grid">
@@ -1023,6 +1172,18 @@ export default function App() {
       <footer className="app-footer">
         {renderSyncPanel()}
       </footer>
+
+      {/* Generic Modal for confirmations */}
+      <Modal
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        type={modalConfig.type}
+        onConfirm={modalConfig.onConfirm}
+        confirmLabel={modalConfig.confirmLabel}
+        cancelLabel={modalConfig.cancelLabel}
+      />
     </div>
   );
 }

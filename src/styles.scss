@@ -259,17 +259,8 @@ body {
 
 .list-header-row {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-end;
     align-items: center;
-
-    h2 {
-        font-size: 1.2rem;
-        user-select: none;
-
-        @media (max-width: 600px) {
-            font-size: 1.1rem;
-        }
-    }
 }
 
 .categories-grid {
@@ -292,32 +283,20 @@ body {
     overflow: visible;
 
     &.depth-1 {
-        border-left: 5px solid $primary-color;
+        border-left: 3px solid #fbbf24;
     }
 
     &.depth-2 {
-        border-left: 5px solid $primary-hover;
-        margin-left: 10px;
+        border-left: 3px solid #a78bfa;
     }
 
     &.depth-3 {
-        border-left: 5px solid #93c5fd;
-        margin-left: 20px;
-    }
-
-    &.depth-4 {
-        border-left: 5px solid #bfdbfe;
-        margin-left: 30px;
-    }
-
-    &.depth-5 {
-        border-left: 5px solid #dbeafe;
-        margin-left: 40px;
+        border-left: 3px solid #22d3ee;
     }
 }
 
 .category-header {
-    padding: 4px 16px;
+    padding: 6px 12px;
     background-color: rgba($border-color, 0.2);
     // border-bottom: 1px solid $border-color;
     display: flex;
@@ -343,11 +322,12 @@ body {
         color: $text-muted;
     }
 
-    .category-header-title-button{
+    .category-header-title-button {
         background-color: transparent;
         border: none;
         cursor: pointer;
     }
+
     .category-title {
         font-weight: 600;
         user-select: none;
@@ -379,7 +359,7 @@ body {
     padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    // gap: 8px;
 
     @media (max-width: 600px) {
         padding: 12px;
@@ -387,38 +367,18 @@ body {
     }
 }
 
-// Todo Item and recursive nesting levels
+// Todo Item
 .todo-item {
     display: flex;
     flex-direction: column;
     gap: 8px;
-
-    &.depth-1 {
-        border-left: 2px solid transparent;
-    }
-
-    &.depth-2 {
-        margin-left: 10px;
-    }
-
-    &.depth-3 {
-        margin-left: 20px;
-    }
-
-    &.depth-4 {
-        margin-left: 30px;
-    }
-
-    &.depth-5 {
-        margin-left: 40px;
-    }
 }
 
 .todo-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 0;
+    padding: 4px 6px;
 }
 
 .todo-checkbox {
@@ -576,13 +536,13 @@ body {
     display: inline-block;
 
     .dropdown-trigger {
-        margin-left: 4px;
+        display: flex;
+        margin-left: 8px;
         background: none;
         border: none;
         color: $text-muted;
-        font-size: 1.2rem;
         user-select: none;
-        padding: 0 4px;
+        padding: 4px 8px;
         cursor: pointer;
         border-radius: 4px;
         transition: background $transition-speed;
@@ -606,7 +566,7 @@ body {
     border: 1px solid $border-color;
     border-radius: $border-radius;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    min-width: 180px;
+    min-width: 250px;
     z-index: 9999999;
     padding: 6px 0;
 
@@ -639,6 +599,33 @@ body {
     }
 }
 
+// Delete icon button for task items
+.delete-icon-btn {
+    // margin-left: 8px;
+    background: none;
+    border: none;
+    color: $text-muted;
+    // font-size: 1.2rem;
+    user-select: none;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all $transition-speed;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover:not(:disabled) {
+        background-color: rgba($danger-color, 0.15);
+        color: $danger-color;
+    }
+
+    &:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+}
+
 .validation-tooltip {
     font-size: 0.75rem;
     color: $danger-color;
@@ -651,7 +638,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 16px;
+    padding: 2px 8px;
     border-radius: 6px;
     font-size: 0.85rem;
     font-weight: 500;
@@ -665,11 +652,11 @@ body {
     }
 
     &.btn-primary {
-        background-color: $primary-color;
+        background-color: $primary-hover;
         color: white;
 
         &:hover {
-            background-color: $primary-hover;
+            background-color: $primary-color;
         }
     }
 
@@ -683,6 +670,24 @@ body {
         }
     }
 
+    &.btn-danger {
+        background-color: $danger-color;
+        color: white;
+
+        &:hover {
+            background-color: #ef4444;
+        }
+    }
+
+    &.btn-warning {
+        background-color: $warning-color;
+        color: white;
+
+        &:hover {
+            background-color: #f59e0b;
+        }
+    }
+
     &.btn-outline {
         background-color: transparent;
         border-color: $border-color;
@@ -693,17 +698,12 @@ body {
         }
     }
 
-    &.btn-add {
+    &.btn-add-task {
         user-select: none;
         margin-left: auto;
-        // width: 20px;
-        height: 25px;
-        // margin-top:12px;
-        // margin-bottom:12px;
         justify-content: center;
-        border: 1px dashed $border-color;
-        background-color: rgba($border-color, 0.1);
-        color: $text-muted;
+        background-color: transparent;
+        color: $primary-color;
 
         &:hover {
             background-color: rgba($border-color, 0.2);
@@ -759,12 +759,12 @@ body {
     .modal-actions {
         display: flex;
         flex-direction: column;
+        align-items: center;
         gap: 10px;
         margin-top: 10px;
 
         button {
-            width: 100%;
-            justify-content: center;
+            padding-inline: 40px;
         }
     }
 }
@@ -786,4 +786,8 @@ body {
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
     }
+}
+
+.icon-primary {
+    color: $primary-color;
 }
