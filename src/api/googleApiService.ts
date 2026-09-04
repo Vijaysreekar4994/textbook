@@ -1,11 +1,13 @@
 export class GoogleApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly responseText: string
-  ) {
+  readonly status: number;
+  readonly responseText: string;
+
+  constructor(message: string, status: number, responseText: string) {
     super(message);
+
     this.name = 'GoogleApiError';
+    this.status = status;
+    this.responseText = responseText;
   }
 }
 
