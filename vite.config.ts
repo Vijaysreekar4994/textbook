@@ -11,7 +11,8 @@ export default defineConfig({
       includeAssets: [
         'favicon.png',
         'apple-touch-icon.png',
-        'app-icon.png',
+        'app-icon-192.png',
+        'app-icon-512.png',
       ],
 
       manifest: {
@@ -24,21 +25,24 @@ export default defineConfig({
 
         display: 'standalone',
 
-        start_url: '/',
+        lang: 'en',
+
+        start_url: '/textbook/',
+        scope: '/textbook/',
 
         icons: [
           {
-            src: '/app-icon.png',
+            src: '/app-icon-192.png',
             sizes: '192x192',
             type: 'image/png',
           },
           {
-            src: '/app-icon.png',
+            src: '/app-icon-512.png',
             sizes: '512x512',
             type: 'image/png',
           },
           {
-            src: '/app-icon.png',
+            src: '/app-icon-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable',

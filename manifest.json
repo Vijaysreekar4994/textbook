@@ -1,6 +1,6 @@
 {
-  "short_name": "TodoPWA",
-  "name": "Portable Checklist PWA",
+  "short_name": "TextBook",
+  "name": "All in one notes app",
   "icons": [
     {
       "src": "favicon.ico",
