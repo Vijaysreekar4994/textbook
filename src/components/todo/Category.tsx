@@ -148,10 +148,12 @@ export const Category: React.FC<CategoryProps> = ({
             <button onClick={handleRenameClick} type='button'>
               Rename
             </button>
-            <button onClick={handleHideCheckedToggle} type='button'>
-              <Icon name={category.hideCheckedItems ? "ri-checkbox-fill" : "ri-checkbox-blank-line"} />
-              <span style={{ marginLeft: '8px' }}>Hide checked</span>
-            </button>
+            {category.showCheckboxes && (
+              <button onClick={handleHideCheckedToggle} type='button'>
+                <Icon name={category.hideCheckedItems ? "ri-checkbox-fill" : "ri-checkbox-blank-line"} />
+                <span style={{ marginLeft: '8px' }}>Hide checked</span>
+              </button>
+            )}
             {category.showCheckboxes && (
               <button onClick={handleSortCheckedToggle} type='button'>
                 <Icon name={category.sortCheckedToBottom ? "ri-checkbox-fill" : "ri-checkbox-blank-line"} />

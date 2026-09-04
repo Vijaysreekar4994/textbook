@@ -1,162 +1,210 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as dbStorage from '../indexedDbStorage';
-import { GoogleDriveSyncService } from '../googleDriveSync';
-import type { AppDocument, Category, TodoItemType, TodoList } from '../types';
-import { migrateCategories } from '../utils/categoryUtils';
-import { generateUUID } from '../utils/uuid';
+import { ACTIVE_USER_STORAGE_KEY, GUEST_DOC_ID_KEY, type AppDocument } from '../types';
+import { mergeDocuments } from '../sync/documentMerge';
+import { createEmptyDocument, migrateDocument } from '../utils/documentUtils';
 
-// Google Drive Sync Service initialization with Client ID from environment variable
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-const driveSyncService = new GoogleDriveSyncService(GOOGLE_CLIENT_ID);
-
-const getInitialSampleData = (): TodoList[] => {
-  const orangesTodo: TodoItemType = {
-    id: generateUUID(),
-    title: 'Oranges',
-    completed: false,
-  };
-
-  const fruitsSubcat: Category = {
-    id: generateUUID(),
-    title: 'Fruits',
-    collapsed: false,
-    hideCheckedItems: false,
-    showCheckboxes: true,
-    sortCheckedToBottom: false,
-    items: [orangesTodo],
-    subcategories: [],
-    depth: 2,
-  };
-
-  const foodCategory: Category = {
-    id: generateUUID(),
-    title: 'Food',
-    collapsed: false,
-    hideCheckedItems: false,
-    showCheckboxes: true,
-    sortCheckedToBottom: false,
-    items: [],
-    subcategories: [fruitsSubcat],
-    depth: 1,
-  };
-
-  const shoppingList: TodoList = {
-    id: generateUUID(),
-    title: 'Shopping',
-    categories: [foodCategory],
-  };
-
-  const workList: TodoList = {
-    id: generateUUID(),
-    title: 'Work',
-    categories: [],
-  };
-
-  const personalList: TodoList = {
-    id: generateUUID(),
-    title: 'Personal',
-    categories: [],
-  };
-
-  return [shoppingList, workList, personalList];
-};
-
-const createNewDocument = (): AppDocument => {
-  return {
-    version: 1,
-    documentId: generateUUID(),
-    updatedAt: new Date().toISOString(),
-    lists: getInitialSampleData(),
-    activeListId: '',
-    syncMetadata: {
-      lastSyncedAt: null,
-      remoteRevision: null,
-      isDirty: false,
-      documentVersion: 1,
-    },
-  };
-};
+export interface ApplySyncResult {
+  document: AppDocument;
+  hasPendingLocalChanges: boolean;
+}
 
 export interface UseDocumentReturn {
   doc: AppDocument | null;
   activeListId: string;
+  ownerUserId: string | null;
   isLoading: boolean;
   isDbAvailable: boolean;
   setActiveListId: (id: string) => void;
-  updateDocument: (updatedDoc: AppDocument, isUserAction?: boolean) => Promise<void>;
-  driveSyncService: GoogleDriveSyncService;
+  updateDocument: (updatedDocument: AppDocument, isUserAction?: boolean) => void;
+  getCurrentDocument: () => AppDocument | null;
+  setUserDocument: (userId: string, document: AppDocument) => Promise<void>;
+  applySyncResult: (
+    userId: string,
+    syncStartDocument: AppDocument,
+    syncedDocument: AppDocument
+  ) => Promise<ApplySyncResult>;
+  resetAfterLogout: () => Promise<void>;
 }
+
+const getStoredActiveUserId = (): string | null => {
+  try {
+    return localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const setStoredActiveUserId = (userId: string | null) => {
+  try {
+    if (userId) {
+      localStorage.setItem(ACTIVE_USER_STORAGE_KEY, userId);
+      return;
+    }
+
+    localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+  } catch {
+    // IndexedDB remains authoritative if localStorage is unavailable.
+  }
+};
 
 export const useDocument = (): UseDocumentReturn => {
   const [doc, setDoc] = useState<AppDocument | null>(null);
-  const [activeListId, setActiveListId] = useState<string>('');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isDbAvailable, setIsDbAvailable] = useState<boolean>(true);
+  const [activeListId, setActiveListId] = useState('');
+  const [ownerUserId, setOwnerUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isDbAvailable, setIsDbAvailable] = useState(true);
 
-  // Initialize App & Database
+  const docRef = useRef<AppDocument | null>(null);
+  const ownerUserIdRef = useRef<string | null>(null);
+
+  const setDocumentState = useCallback((document: AppDocument) => {
+    docRef.current = document;
+    setDoc(document);
+    setActiveListId(document.activeListId || document.lists[0]?.id || '');
+  }, []);
+
+  const persistDocument = useCallback(async (document: AppDocument, userId: string | null) => {
+    const saved = userId
+      ? await dbStorage.saveUserDocument(userId, document)
+      : await dbStorage.saveGuestDocument(document);
+
+    setIsDbAvailable(saved || dbStorage.getDbAvailability());
+  }, []);
+
   useEffect(() => {
-    async function loadApp() {
+    const loadApp = async () => {
       try {
-        const isAvailable = await dbStorage.initDB();
-        setIsDbAvailable(isAvailable !== null);
+        const db = await dbStorage.initDB();
+        setIsDbAvailable(db !== null);
 
-        const localDoc = await dbStorage.loadDocument();
-        if (localDoc) {
-          const migratedDoc = {
-            ...localDoc,
-            lists: localDoc.lists.map((list) => ({
-              ...list,
-              categories: migrateCategories(list.categories),
-            })),
-          };
-          setDoc(migratedDoc);
-          setActiveListId(migratedDoc.activeListId || migratedDoc.lists[0]?.id || '');
-        } else {
-          const initialDoc = createNewDocument();
-          initialDoc.activeListId = initialDoc.lists[0].id;
-          setDoc(initialDoc);
-          setActiveListId(initialDoc.lists[0].id);
-          await dbStorage.saveDocument(initialDoc);
+        const storedUserId = getStoredActiveUserId();
+        const storedDocument = storedUserId
+          ? await dbStorage.loadUserDocument(storedUserId)
+          : await dbStorage.loadGuestDocument();
+
+        const initialDocument = migrateDocument(storedDocument ?? createEmptyDocument());
+
+        ownerUserIdRef.current = storedUserId;
+        setOwnerUserId(storedUserId);
+        setDocumentState(initialDocument);
+
+        if (!storedDocument) {
+          await persistDocument(initialDocument, storedUserId);
         }
-      } catch (error) {
-        console.error('Failed to load app:', error);
       } finally {
         setIsLoading(false);
       }
-    }
-    loadApp();
-  }, []);
+    };
 
-  // Handle local state changes & database persistence
+    void loadApp();
+  }, [persistDocument, setDocumentState]);
+
   const updateDocument = useCallback(
-    async (updatedDoc: AppDocument, isUserAction = true) => {
-      const finalDoc = {
-        ...updatedDoc,
-        updatedAt: new Date().toISOString(),
+    (updatedDocument: AppDocument, isUserAction = true) => {
+      const currentDocument = docRef.current;
+      // This is also an in-memory revision guard. Increment for UI-only persisted changes too
+      // so an in-flight sync can never replace a newer local state snapshot.
+      const nextVersion =
+        (currentDocument?.syncMetadata.documentVersion ?? updatedDocument.syncMetadata.documentVersion) + 1;
+
+      const finalDocument: AppDocument = {
+        ...updatedDocument,
+        updatedAt: isUserAction ? new Date().toISOString() : updatedDocument.updatedAt,
         syncMetadata: {
-          ...updatedDoc.syncMetadata,
-          isDirty: isUserAction,
+          ...updatedDocument.syncMetadata,
+          isDirty: isUserAction ? true : updatedDocument.syncMetadata.isDirty,
+          documentVersion: nextVersion,
         },
       };
 
-      setDoc(finalDoc);
-
-      try {
-        await dbStorage.saveDocument(finalDoc);
-      } catch (error) {
-        console.error('Failed to save document:', error);
-      }
+      setDocumentState(finalDocument);
+      void persistDocument(finalDocument, ownerUserIdRef.current);
     },
-    []
+    [persistDocument, setDocumentState]
   );
+
+  const getCurrentDocument = useCallback(() => docRef.current, []);
+
+  const setUserDocument = useCallback(
+    async (userId: string, document: AppDocument) => {
+      const migratedDocument = migrateDocument(document);
+
+      ownerUserIdRef.current = userId;
+      setOwnerUserId(userId);
+      setStoredActiveUserId(userId);
+      setDocumentState(migratedDocument);
+      await persistDocument(migratedDocument, userId);
+    },
+    [persistDocument, setDocumentState]
+  );
+
+  const applySyncResult = useCallback(
+    async (
+      userId: string,
+      syncStartDocument: AppDocument,
+      syncedDocument: AppDocument
+    ): Promise<ApplySyncResult> => {
+      if (ownerUserIdRef.current !== userId) {
+        return { document: syncedDocument, hasPendingLocalChanges: false };
+      }
+
+      const latestDocument = docRef.current;
+      if (!latestDocument) {
+        await setUserDocument(userId, syncedDocument);
+        return { document: syncedDocument, hasPendingLocalChanges: false };
+      }
+
+      const didDocumentChangeDuringSync =
+        latestDocument.syncMetadata.documentVersion !== syncStartDocument.syncMetadata.documentVersion ||
+        latestDocument.updatedAt !== syncStartDocument.updatedAt;
+
+      if (!didDocumentChangeDuringSync) {
+        setDocumentState(syncedDocument);
+        await persistDocument(syncedDocument, userId);
+        return { document: syncedDocument, hasPendingLocalChanges: false };
+      }
+
+      // Preserve edits made while the network request was running.
+      const mergedWithInFlightEdits = mergeDocuments(
+        syncStartDocument,
+        latestDocument,
+        syncedDocument
+      );
+
+      setDocumentState(mergedWithInFlightEdits);
+      await persistDocument(mergedWithInFlightEdits, userId);
+
+      return { document: mergedWithInFlightEdits, hasPendingLocalChanges: true };
+    },
+    [persistDocument, setDocumentState, setUserDocument]
+  );
+
+  const resetAfterLogout = useCallback(async () => {
+    const emptyGuestDocument = createEmptyDocument();
+
+    ownerUserIdRef.current = null;
+    setOwnerUserId(null);
+    setStoredActiveUserId(null);
+    setDocumentState(emptyGuestDocument);
+
+    // Remove any previous guest content so another person on the same device cannot see it.
+    await dbStorage.deleteDocumentByKey(GUEST_DOC_ID_KEY);
+    await dbStorage.deleteLegacyDocument();
+    await persistDocument(emptyGuestDocument, null);
+  }, [persistDocument, setDocumentState]);
 
   return {
     doc,
     activeListId,
-    setActiveListId,
+    ownerUserId,
     isLoading,
     isDbAvailable,
+    setActiveListId,
     updateDocument,
-    driveSyncService,
+    getCurrentDocument,
+    setUserDocument,
+    applySyncResult,
+    resetAfterLogout,
   };
 };

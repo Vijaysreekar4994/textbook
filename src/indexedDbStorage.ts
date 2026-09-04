@@ -1,121 +1,203 @@
-import { DB_NAME, DB_VERSION, STORE_NAME, DOC_ID_KEY, type AppDocument } from './types';
+import {
+  DB_NAME,
+  DB_VERSION,
+  STORE_NAME,
+  LEGACY_DOC_ID_KEY,
+  GUEST_DOC_ID_KEY,
+  USER_DOC_ID_PREFIX,
+  SYNC_BASE_ID_PREFIX,
+  type AppDocument,
+} from './types';
 
-// In-memory fallback if IndexedDB is blocked or unavailable (e.g. Incognito mode)
-const inMemoryStore: Record<string, AppDocument | null> = {};
+const inMemoryStore = new Map<string, AppDocument>();
+const writeQueues = new Map<string, Promise<void>>();
+
 let isDbAvailable = true;
+let dbPromise: Promise<IDBDatabase | null> | null = null;
 
-export const setDbAvailability = (available: boolean) => {
-  isDbAvailable = available;
-};
+export const getUserDocumentKey = (userId: string): string => `${USER_DOC_ID_PREFIX}${userId}`;
+export const getSyncBaseKey = (userId: string): string => `${SYNC_BASE_ID_PREFIX}${userId}`;
 
-export const getDbAvailability = (): boolean => {
-  return isDbAvailable;
-};
+export const getDbAvailability = (): boolean => isDbAvailable;
 
 export const initDB = (): Promise<IDBDatabase | null> => {
-  return new Promise((resolve) => {
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise((resolve) => {
     if (typeof window === 'undefined' || !window.indexedDB) {
-      console.warn('IndexedDB is not supported by this browser.');
       isDbAvailable = false;
       resolve(null);
       return;
     }
 
-    try {
-      const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onerror = (event) => {
-        console.error('IndexedDB open error:', event);
-        isDbAvailable = false;
-        resolve(null); // Resolve with null to trigger in-memory fallback
-      };
-
-      request.onsuccess = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        resolve(db);
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME);
-        }
-      };
-
-      request.onblocked = () => {
-        console.warn('IndexedDB open blocked by another tab or connection.');
-        isDbAvailable = false;
-        resolve(null);
-      };
-    } catch (e) {
-      console.error('Failed to initialize IndexedDB:', e);
+    request.onerror = () => {
       isDbAvailable = false;
       resolve(null);
-    }
+    };
+
+    request.onblocked = () => {
+      isDbAvailable = false;
+      resolve(null);
+    };
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+
+    request.onsuccess = () => {
+      isDbAvailable = true;
+      resolve(request.result);
+    };
+  });
+
+  return dbPromise;
+};
+
+const readFromDb = async (key: string): Promise<AppDocument | null> => {
+  const db = await initDB();
+  if (!db) return inMemoryStore.get(key) ?? null;
+
+  return new Promise((resolve) => {
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const request = transaction.objectStore(STORE_NAME).get(key);
+
+    request.onsuccess = () => resolve((request.result as AppDocument | undefined) ?? null);
+    request.onerror = () => resolve(inMemoryStore.get(key) ?? null);
   });
 };
 
-export const loadDocument = async (): Promise<AppDocument | null> => {
-  if (!isDbAvailable) {
-    return inMemoryStore[DOC_ID_KEY] || null;
-  }
+const enqueueWrite = async (key: string, write: () => Promise<void>): Promise<void> => {
+  const previousWrite = writeQueues.get(key) ?? Promise.resolve();
+  const nextWrite = previousWrite.catch(() => undefined).then(write);
 
-  const db = await initDB();
-  if (!db) {
-    return inMemoryStore[DOC_ID_KEY] || null;
-  }
+  writeQueues.set(key, nextWrite);
 
-  return new Promise((resolve) => {
-    try {
-      const transaction = db.transaction(STORE_NAME, 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(DOC_ID_KEY);
-
-      request.onsuccess = () => {
-        resolve(request.result || null);
-      };
-
-      request.onerror = () => {
-        console.error('IndexedDB get error, falling back to in-memory store');
-        resolve(inMemoryStore[DOC_ID_KEY] || null);
-      };
-    } catch (e) {
-      console.error('IndexedDB transaction error, falling back to in-memory store:', e);
-      resolve(inMemoryStore[DOC_ID_KEY] || null);
+  try {
+    await nextWrite;
+  } finally {
+    if (writeQueues.get(key) === nextWrite) {
+      writeQueues.delete(key);
     }
-  });
+  }
 };
 
-export const saveDocument = async (doc: AppDocument): Promise<boolean> => {
-  // Always update in-memory cache
-  inMemoryStore[DOC_ID_KEY] = JSON.parse(JSON.stringify(doc));
-
-  if (!isDbAvailable) {
-    return false; // Returns false to indicate it was only saved in-memory
+export const flushStorageWrites = async (key?: string): Promise<void> => {
+  if (key) {
+    await (writeQueues.get(key) ?? Promise.resolve()).catch(() => undefined);
+    return;
   }
 
-  const db = await initDB();
-  if (!db) {
-    return false;
-  }
+  await Promise.all([...writeQueues.values()].map((queue) => queue.catch(() => undefined)));
+};
 
-  return new Promise((resolve) => {
-    try {
+export const loadDocumentByKey = async (key: string): Promise<AppDocument | null> => {
+  await flushStorageWrites(key);
+  const document = await readFromDb(key);
+  return document ? structuredClone(document) : null;
+};
+
+export const saveDocumentByKey = async (key: string, document: AppDocument): Promise<boolean> => {
+  const snapshot = structuredClone(document);
+  inMemoryStore.set(key, snapshot);
+
+  if (!isDbAvailable) return false;
+
+  let savedToDb = true;
+
+  await enqueueWrite(key, async () => {
+    const db = await initDB();
+    if (!db) {
+      savedToDb = false;
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
       const transaction = db.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.put(doc, DOC_ID_KEY);
-
-      request.onsuccess = () => {
-        resolve(true);
+      transaction.objectStore(STORE_NAME).put(snapshot, key);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => {
+        savedToDb = false;
+        resolve();
       };
-
-      request.onerror = (event) => {
-        console.error('IndexedDB write error:', event);
-        resolve(false);
+      transaction.onabort = () => {
+        savedToDb = false;
+        resolve();
       };
-    } catch (e) {
-      console.error('IndexedDB write transaction error:', e);
-      resolve(false);
-    }
+    });
   });
+
+  return savedToDb;
 };
+
+export const deleteDocumentByKey = async (key: string): Promise<boolean> => {
+  inMemoryStore.delete(key);
+
+  if (!isDbAvailable) return false;
+
+  let deletedFromDb = true;
+
+  await enqueueWrite(key, async () => {
+    const db = await initDB();
+    if (!db) {
+      deletedFromDb = false;
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      transaction.objectStore(STORE_NAME).delete(key);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => {
+        deletedFromDb = false;
+        resolve();
+      };
+      transaction.onabort = () => {
+        deletedFromDb = false;
+        resolve();
+      };
+    });
+  });
+
+  return deletedFromDb;
+};
+
+export const loadGuestDocument = async (): Promise<AppDocument | null> => {
+  const guestDocument = await loadDocumentByKey(GUEST_DOC_ID_KEY);
+  if (guestDocument) return guestDocument;
+
+  const legacyDocument = await loadDocumentByKey(LEGACY_DOC_ID_KEY);
+  if (!legacyDocument) return null;
+
+  // Copy, don't delete: keeping the old key is a deliberate recovery safety net.
+  await saveDocumentByKey(GUEST_DOC_ID_KEY, legacyDocument);
+  return legacyDocument;
+};
+
+export const saveGuestDocument = (document: AppDocument): Promise<boolean> =>
+  saveDocumentByKey(GUEST_DOC_ID_KEY, document);
+
+export const loadUserDocument = (userId: string): Promise<AppDocument | null> =>
+  loadDocumentByKey(getUserDocumentKey(userId));
+
+export const saveUserDocument = (userId: string, document: AppDocument): Promise<boolean> =>
+  saveDocumentByKey(getUserDocumentKey(userId), document);
+
+export const deleteUserDocument = (userId: string): Promise<boolean> =>
+  deleteDocumentByKey(getUserDocumentKey(userId));
+
+export const loadSyncBase = (userId: string): Promise<AppDocument | null> =>
+  loadDocumentByKey(getSyncBaseKey(userId));
+
+export const saveSyncBase = (userId: string, document: AppDocument): Promise<boolean> =>
+  saveDocumentByKey(getSyncBaseKey(userId), document);
+
+export const deleteSyncBase = (userId: string): Promise<boolean> =>
+  deleteDocumentByKey(getSyncBaseKey(userId));
+
+export const deleteLegacyDocument = (): Promise<boolean> =>
+  deleteDocumentByKey(LEGACY_DOC_ID_KEY);

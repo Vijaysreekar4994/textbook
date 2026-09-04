@@ -1,38 +1,53 @@
-const CACHE_NAME = 'todo-pwa-cache-v1';
-const ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/static/js/main.js', // Or actual bundled paths
-  '/static/css/main.css'
-];
+/// <reference lib="webworker" />
 
-self.addEventListener('install', ((event: ExtendableEvent) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
-    })
-  );
-}) as EventListener);
+const CACHE_NAME = 'textbook-runtime-v2';
 
-self.addEventListener('activate', ((event: ExtendableEvent) => {
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
+self.addEventListener(
+  'activate',
+  ((event: ExtendableEvent) => {
+    event.waitUntil(
+      caches.keys().then((keys) =>
+        Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))
+      )
+    );
+  }) as EventListener
+);
+
+self.addEventListener(
+  'fetch',
+  ((event: FetchEvent) => {
+    const { request } = event;
+    const url = new URL(request.url);
+
+    if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+
+    if (request.mode === 'navigate') {
+      event.respondWith(
+        fetch(request)
+          .then(async (response) => {
+            if (response.ok) {
+              const cache = await caches.open(CACHE_NAME);
+              await cache.put(request, response.clone());
+            }
+            return response;
+          })
+          .catch(async () => (await caches.match(request)) ?? Response.error())
       );
-    })
-  );
-}) as EventListener);
+      return;
+    }
 
-self.addEventListener('fetch', ((event: FetchEvent) => {
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request);
-    })
-  );
-}) as EventListener);
+    event.respondWith(
+      caches.match(request).then((cachedResponse) => {
+        const networkResponse = fetch(request).then(async (response) => {
+          if (response.ok) {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(request, response.clone());
+          }
+          return response;
+        });
+
+        return cachedResponse ?? networkResponse;
+      })
+    );
+  }) as EventListener
+);

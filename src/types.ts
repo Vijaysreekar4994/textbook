@@ -6,7 +6,7 @@ export interface TodoItemType {
   text?: string;
   isList?: boolean;
   listItems?: TodoItemType[];
-  collapsed?: boolean; // For fold/unfold functionality
+  collapsed?: boolean;
 }
 
 export interface Category {
@@ -14,11 +14,11 @@ export interface Category {
   title: string;
   collapsed: boolean;
   hideCheckedItems: boolean;
-  showCheckboxes: boolean; // Controls whether items display as checkboxes or text notes
-  sortCheckedToBottom: boolean; // When true, checked items move to bottom of list
+  showCheckboxes: boolean;
+  sortCheckedToBottom: boolean;
   items: TodoItemType[];
   subcategories: Category[];
-  depth: number; // 1 to 5
+  depth: number;
 }
 
 export interface TodoList {
@@ -35,7 +35,7 @@ export interface SyncMetadata {
 }
 
 export interface AppDocument {
-  version: number; // document schema/data version
+  version: number;
   documentId: string;
   updatedAt: string;
   lists: TodoList[];
@@ -43,8 +43,36 @@ export interface AppDocument {
   syncMetadata: SyncMetadata;
 }
 
+export interface DriveUser {
+  id: string;
+  displayName: string;
+  emailAddress: string;
+}
+
+export interface DriveFileMetadata {
+  id: string;
+  version: string;
+  modifiedTime: string;
+}
+
+export type SyncStatus =
+  | 'local-only'
+  | 'connecting'
+  | 'syncing'
+  | 'synced'
+  | 'offline'
+  | 'reauth-required'
+  | 'error';
+
 export const MAX_DEPTH = 3;
+
 export const DB_NAME = 'TodoAppDatabase';
 export const DB_VERSION = 1;
 export const STORE_NAME = 'documents';
-export const DOC_ID_KEY = 'current_document';
+
+// Kept only so existing installations can be migrated without losing data.
+export const LEGACY_DOC_ID_KEY = 'current_document';
+export const GUEST_DOC_ID_KEY = 'document:guest';
+export const USER_DOC_ID_PREFIX = 'document:user:';
+export const SYNC_BASE_ID_PREFIX = 'sync-base:user:';
+export const ACTIVE_USER_STORAGE_KEY = 'textbook_active_user_id';

@@ -1,221 +1,152 @@
-import type { AppDocument } from './types';
-
-// Browser-based Google Drive Sync service using native fetch
-// Requires Google Identity Services script in index.html:
-// <script src="https://accounts.google.com/gsi/client" async defer></script>
+import type { GoogleApiService } from './api/googleApiService';
+import type { AppDocument, DriveFileMetadata, DriveUser } from './types';
+import { isAppDocument, migrateDocument } from './utils/documentUtils';
 
 const DRIVE_FILE_NAME = 'textbook-data.json';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+const DRIVE_API_BASE_URL = 'https://www.googleapis.com/drive/v3';
+const DRIVE_UPLOAD_BASE_URL = 'https://www.googleapis.com/upload/drive/v3';
 
-export interface DriveSyncResult {
-  success: boolean;
-  document?: AppDocument;
-  error?: string;
-  fileId?: string;
+interface DriveFileListResponse {
+  files: DriveFileMetadata[];
 }
 
-export class GoogleDriveSyncService {
-  private clientId: string;
-  private accessToken: string | null = null;
-  private tokenExpiry: number = 0; // timestamp
+interface DriveAboutResponse {
+  user: {
+    permissionId: string;
+    displayName?: string;
+    emailAddress?: string;
+  };
+}
 
-  constructor(clientId: string) {
-    this.clientId = clientId;
-    // Restore token from sessionStorage on initialization
-    this.restoreTokenFromStorage();
-  }
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
 
-  private restoreTokenFromStorage() {
-    try {
-      const storedToken = sessionStorage.getItem('google_access_token');
-      const storedExpiry = sessionStorage.getItem('google_token_expiry');
-      if (storedToken && storedExpiry) {
-        const expiry = parseInt(storedExpiry, 10);
-        if (expiry && Date.now() < expiry) {
-          this.accessToken = storedToken;
-          this.tokenExpiry = expiry;
-          console.log('Restored Google access token from sessionStorage');
-        } else {
-          // Token expired, clear it
-          sessionStorage.removeItem('google_access_token');
-          sessionStorage.removeItem('google_token_expiry');
-        }
-      }
-    } catch (e) {
-      console.error('Failed to restore token from storage:', e);
-    }
-  }
+const isDriveFileMetadata = (value: unknown): value is DriveFileMetadata => {
+  if (!isRecord(value)) return false;
 
-  private saveTokenToStorage() {
-    try {
-      if (this.accessToken && this.tokenExpiry) {
-        sessionStorage.setItem('google_access_token', this.accessToken);
-        sessionStorage.setItem('google_token_expiry', this.tokenExpiry.toString());
-      }
-    } catch (e) {
-      console.error('Failed to save token to storage:', e);
-    }
-  }
+  return (
+    typeof value.id === 'string' &&
+    typeof value.version === 'string' &&
+    typeof value.modifiedTime === 'string'
+  );
+};
 
-  public setAccessToken(token: string, expiresInSeconds: number) {
-    this.accessToken = token;
-    this.tokenExpiry = Date.now() + expiresInSeconds * 1000;
-    // Persist token to sessionStorage for page refresh survival
-    this.saveTokenToStorage();
-  }
+const isDriveFileListResponse = (value: unknown): value is DriveFileListResponse =>
+  isRecord(value) && Array.isArray(value.files) && value.files.every(isDriveFileMetadata);
 
-  public isAuthorized(): boolean {
-    return !!this.accessToken && Date.now() < this.tokenExpiry;
-  }
+const isDriveAboutResponse = (value: unknown): value is DriveAboutResponse => {
+  if (!isRecord(value) || !isRecord(value.user)) return false;
+  return typeof value.user.permissionId === 'string';
+};
 
-  public clearToken() {
-    this.accessToken = null;
-    this.tokenExpiry = 0;
-    // Clear from sessionStorage as well
-    sessionStorage.removeItem('google_access_token');
-    sessionStorage.removeItem('google_token_expiry');
-  }
+export interface GoogleDriveSyncService {
+  getCurrentUser: () => Promise<DriveUser>;
+  findFiles: () => Promise<DriveFileMetadata[]>;
+  getFileMetadata: (fileId: string) => Promise<DriveFileMetadata>;
+  downloadFile: (fileId: string) => Promise<AppDocument>;
+  uploadFile: (document: AppDocument, fileId: string | null) => Promise<DriveFileMetadata>;
+}
 
-  // Requests access token from Google Identity Services using the browser Client ID
-  public authorize(onSuccess: (token: string) => void, onError: (err: Error | string) => void) {
-    if (typeof window === 'undefined') {
-      onError('Window object not available');
-      return;
-    }
+export const createGoogleDriveSyncService = (apiService: GoogleApiService): GoogleDriveSyncService => {
+  const getCurrentUser = async (): Promise<DriveUser> => {
+    const params = new URLSearchParams({ fields: 'user(permissionId,displayName,emailAddress)' });
+    const response = await apiService.requestJson(
+      `${DRIVE_API_BASE_URL}/about?${params.toString()}`,
+      undefined,
+      isDriveAboutResponse
+    );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const win = window as any;
-    if (!win.google) {
-      onError('Google Client SDK not loaded. Check internet connection or index.html script tag.');
-      return;
-    }
-
-    try {
-      const client = win.google.accounts.oauth2.initTokenClient({
-        client_id: this.clientId,
-        scope: DRIVE_SCOPE,
-        callback: (response: { error_subtype?: string; error?: string; access_token?: string; expires_in?: number }) => {
-          if (response.error_subtype) {
-            onError(response.error || 'Authentication failed');
-            return;
-          }
-          if (response.access_token) {
-            this.setAccessToken(response.access_token, response.expires_in || 3600);
-            onSuccess(response.access_token);
-          } else {
-            onError('Authentication failed: No access token returned');
-          }
-        },
-      });
-      client.requestAccessToken({ prompt: 'consent' });
-    } catch (e) {
-      onError(e instanceof Error ? e : 'Authorization failed');
-    }
-  }
-
-  private getHeaders(): HeadersInit {
-    if (!this.accessToken) {
-      throw new Error('Access token not found. User is signed out.');
-    }
     return {
-      Authorization: `Bearer ${this.accessToken}`,
-      'Content-Type': 'application/json',
+      id: response.user.permissionId,
+      displayName: response.user.displayName ?? '',
+      emailAddress: response.user.emailAddress ?? '',
     };
-  }
+  };
 
-  // Searches for todo-data.json inside Google Drive's private appDataFolder
-  public async findFile(): Promise<string | null> {
-    const query = encodeURIComponent(`name = '${DRIVE_FILE_NAME}' and 'appDataFolder' in parents and trashed = false`);
-    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&spaces=appDataFolder&fields=files(id,name)`;
+  const findFiles = async (): Promise<DriveFileMetadata[]> => {
+    const params = new URLSearchParams({
+      q: `name = '${DRIVE_FILE_NAME}' and 'appDataFolder' in parents and trashed = false`,
+      spaces: 'appDataFolder',
+      orderBy: 'modifiedTime desc',
+      pageSize: '100',
+      fields: 'files(id,version,modifiedTime)',
+    });
 
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
+    const response = await apiService.requestJson(
+      `${DRIVE_API_BASE_URL}/files?${params.toString()}`,
+      undefined,
+      isDriveFileListResponse
+    );
 
-      if (!res.ok) {
-        throw new Error(`Failed to query files: ${res.statusText}`);
-      }
+    return response.files;
+  };
 
-      const data = await res.json();
-      if (data.files && data.files.length > 0) {
-        return data.files[0].id;
-      }
-      return null;
-    } catch (error) {
-      console.error('Error finding file on Drive:', error);
-      throw error;
+  const getFileMetadata = async (fileId: string): Promise<DriveFileMetadata> => {
+    const params = new URLSearchParams({ fields: 'id,version,modifiedTime' });
+    return apiService.requestJson(
+      `${DRIVE_API_BASE_URL}/files/${encodeURIComponent(fileId)}?${params.toString()}`,
+      undefined,
+      isDriveFileMetadata
+    );
+  };
+
+  const downloadFile = async (fileId: string): Promise<AppDocument> => {
+    const response = await apiService.request(
+      `${DRIVE_API_BASE_URL}/files/${encodeURIComponent(fileId)}?alt=media`
+    );
+    const value: unknown = await response.json();
+
+    if (!isAppDocument(value)) {
+      throw new Error('The Google Drive data file is invalid or corrupted. Local data was not replaced.');
     }
-  }
 
-  // Downloads the JSON document from Google Drive using file ID
-  public async downloadFile(fileId: string): Promise<AppDocument> {
-    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    return migrateDocument(value);
+  };
 
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
+  const uploadFile = async (
+    document: AppDocument,
+    fileId: string | null
+  ): Promise<DriveFileMetadata> => {
+    const boundary = `textbook_${crypto.randomUUID()}`;
+    const metadata = fileId
+      ? { name: DRIVE_FILE_NAME }
+      : { name: DRIVE_FILE_NAME, parents: ['appDataFolder'] };
 
-      if (!res.ok) {
-        throw new Error(`Failed to download file: ${res.statusText}`);
-      }
+    const requestBody = new Blob([
+      `--${boundary}\r\n`,
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+      JSON.stringify(metadata),
+      `\r\n--${boundary}\r\n`,
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+      JSON.stringify(document),
+      `\r\n--${boundary}--`,
+    ]);
 
-      const doc = await res.json();
-      return doc as AppDocument;
-    } catch (error) {
-      console.error('Error downloading file:', error);
-      throw error;
-    }
-  }
-
-  // Uploads or updates the todo-data.json file on Google Drive
-  public async uploadFile(doc: AppDocument, fileId: string | null): Promise<string> {
-    const metadata = {
-      name: DRIVE_FILE_NAME,
-      parents: fileId ? undefined : ['appDataFolder'],
-    };
-
-    const boundary = 'foo_bar_boundary';
-    const delimiter = `\r\n--${boundary}\r\n`;
-    const closeDelimiter = `\r\n--${boundary}--`;
-
-    const multipartRequestBody =
-      delimiter +
-      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      JSON.stringify(metadata) +
-      delimiter +
-      'Content-Type: application/json\r\n\r\n' +
-      JSON.stringify(doc) +
-      closeDelimiter;
+    const params = new URLSearchParams({
+      uploadType: 'multipart',
+      fields: 'id,version,modifiedTime',
+    });
 
     const url = fileId
-      ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
-      : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+      ? `${DRIVE_UPLOAD_BASE_URL}/files/${encodeURIComponent(fileId)}?${params.toString()}`
+      : `${DRIVE_UPLOAD_BASE_URL}/files?${params.toString()}`;
 
-    const method = fileId ? 'PATCH' : 'POST';
+    return apiService.requestJson(
+      url,
+      {
+        method: fileId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body: requestBody,
+      },
+      isDriveFileMetadata
+    );
+  };
 
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.accessToken}`,
-          'Content-Type': `multipart/related; boundary=${boundary}`,
-        },
-        body: multipartRequestBody,
-      });
-
-      if (!res.ok) {
-        throw new Error(`Upload failed with status: ${res.statusText}`);
-      }
-
-      const result = await res.json();
-      return result.id;
-    } catch (error) {
-      console.error('Error uploading file to Drive:', error);
-      throw error;
-    }
-  }
-}
+  return {
+    getCurrentUser,
+    findFiles,
+    getFileMetadata,
+    downloadFile,
+    uploadFile,
+  };
+};
