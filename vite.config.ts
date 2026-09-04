@@ -20,7 +20,7 @@ export default defineConfig({
         short_name: 'Textbook',
         description: 'Your personal all-in-one notes and productivity app',
 
-        theme_color: '#ffffff',
+        theme_color: '#da881e',
         background_color: '#ffffff',
 
         display: 'standalone',
@@ -32,17 +32,17 @@ export default defineConfig({
 
         icons: [
           {
-            src: '/app-icon-192.png',
+            src: '/textbook/app-icon-192.png',
             sizes: '192x192',
             type: 'image/png',
           },
           {
-            src: '/app-icon-512.png',
+            src: '/textbook/app-icon-512.png',
             sizes: '512x512',
             type: 'image/png',
           },
           {
-            src: '/app-icon-512.png',
+            src: '/textbook/app-icon-512.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable',
