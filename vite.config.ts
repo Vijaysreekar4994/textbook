@@ -20,8 +20,8 @@ export default defineConfig({
         short_name: 'Textbook',
         description: 'Your personal all-in-one notes and productivity app',
 
-        theme_color: '#da881e',
-        background_color: '#ffffff',
+        theme_color: '#9e7900',
+        background_color: '#000000',
 
         display: 'standalone',
 
