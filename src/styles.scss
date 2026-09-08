@@ -220,13 +220,6 @@ body {
         color: $primary-color;
         font-weight: 600;
     }
-    .tab-title-button {
-        font-weight: 600;
-        background: none;
-        border: none;
-        color: inherit;
-        cursor: pointer;
-    }
 
     .tab-delete {
         background: none;
@@ -298,9 +291,8 @@ body {
 }
 
 .category-header {
-    padding: 6px 12px;
+    padding: 8px 4px 8px 8px;
     background-color: rgba($border-color, 0.2);
-    // border-bottom: 1px solid $border-color;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -358,13 +350,13 @@ body {
 }
 
 .category-body {
-    padding: 8px;
+    padding: 8px 4px 8px 8px;
     display: flex;
     flex-direction: column;
     // gap: 8px;
 
     @media (max-width: 600px) {
-        padding: 12px;
+        // padding: 12px;
         gap: 8px; // change later
     }
 }
@@ -379,8 +371,8 @@ body {
 .todo-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 4px 6px;
+    gap: 4px;
+    padding: 4px 0px 4px 0px;
 }
 
 .todo-checkbox {
@@ -607,13 +599,11 @@ body {
     }
 }
 
-// Delete icon button for task items
-.delete-icon-btn {
-    // margin-left: 8px;
+// Icon button base + variants (danger/primary)
+.icon-btn {
     background: none;
-    border: none;
+    border: 0.5px solid $border-color;
     color: $text-muted;
-    // font-size: 1.2rem;
     user-select: none;
     padding: 8px;
     cursor: pointer;
@@ -623,14 +613,25 @@ body {
     align-items: center;
     justify-content: center;
 
-    &:hover:not(:disabled) {
-        background-color: rgba($danger-color, 0.15);
-        color: $danger-color;
-    }
-
     &:disabled {
         opacity: 0.3;
         cursor: not-allowed;
+    }
+
+    // Danger variant (e.g. delete) — same element, combined class
+    &.delete-icon-btn {
+        &:hover:not(:disabled) {
+            background-color: rgba($danger-color, 0.15);
+            color: $danger-color;
+        }
+    }
+
+    // Primary variant — same element, combined class
+    &.primary-icon-btn {
+        &:hover:not(:disabled) {
+            background-color: rgba($primary-color, 0.15);
+            color: $primary-color;
+        }
     }
 }
 
@@ -639,6 +640,167 @@ body {
     color: $danger-color;
     padding: 4px 16px;
     border-top: 1px solid $border-color;
+}
+
+// Reorder List (generic drag-to-reorder)
+.reorder-list {
+    display: flex;
+    flex-direction: column;
+
+    .reorder-item {
+        position: relative;
+        user-select: none;
+        cursor: grab;
+        touch-action: none;
+
+        &:active {
+            cursor: grabbing;
+        }
+
+        &.is-dragging {
+            opacity: 0.35;
+        }
+    }
+
+    .reorder-drop-indicator {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        border-radius: 2px;
+        background-color: $primary-color;
+        pointer-events: none;
+        z-index: 2;
+
+        &.indicator-top {
+            top: -1px;
+        }
+
+        &.indicator-bottom {
+            bottom: -1px;
+        }
+    }
+}
+
+.reorder-ghost {
+    position: fixed;
+    z-index: 10000001;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    background-color: $card-bg;
+    border: 2px solid $primary-color;
+    border-radius: $border-radius;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.45);
+    padding: 6px 10px;
+    min-width: 120px;
+}
+
+// Tab list options (reorder dropdown)
+.tab-options {
+    position: relative;
+    flex-shrink: 0;
+
+    .tab-options-button {
+        display: inline-flex;
+        align-items: center;
+        background: none;
+        border: none;
+        color: $text-muted;
+        font-size: 1.1rem;
+        padding: 8px;
+        cursor: pointer;
+        border-radius: $border-radius;
+        transition: all $transition-speed;
+
+        &:hover {
+            color: $primary-color;
+            background-color: rgba($border-color, 0.2);
+        }
+    }
+
+    .tab-options-menu {
+        position: fixed;
+        z-index: 9999998;
+        background-color: $card-bg;
+        border: 1px solid $border-color;
+        border-radius: $border-radius;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+        padding: 6px;
+        min-width: 240px;
+        max-width: 320px;
+
+        .tab-options-menu-header {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: $text-muted;
+            padding: 4px 8px 8px;
+        }
+
+        .tab-options-empty {
+            padding: 12px 8px;
+            font-size: 0.85rem;
+            color: $text-muted;
+        }
+
+        .tab-options-list {
+            max-height: 320px;
+            overflow-y: auto;
+        }
+    }
+}
+
+.tab-options-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 6px;
+
+    &:hover {
+        background-color: rgba($border-color, 0.15);
+    }
+}
+
+.tab-options-drag {
+    color: $text-muted;
+    flex-shrink: 0;
+}
+
+.tab-options-title {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.85rem;
+    color: $text-color;
+}
+
+.tab-options-active {
+    color: $primary-color;
+    flex-shrink: 0;
+}
+
+.tab-options-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: $text-muted;
+    padding: 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color $transition-speed;
+
+    &:hover {
+        color: $primary-color;
+    }
+
+    &.is-danger:hover {
+        color: $danger-color;
+    }
 }
 
 // Buttons & CTA styles

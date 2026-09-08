@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useState } from 'react';
-import { Icon, Modal, Category as CategoryComponent, TodoItem } from './components';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Icon, Modal, ReorderList, Category as CategoryComponent, TodoItem } from './components';
 import { useDocument, type UseDocumentReturn } from './hooks/useDocument';
 import { DriveSyncProvider } from './sync/DriveSyncContext';
 import { MAX_DEPTH, type Category, type TodoItemType, type TodoList } from './types';
@@ -36,12 +36,27 @@ const AppContent = ({ document }: AppContentProps) => {
     message: '',
     onConfirm: () => undefined,
   });
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  const [tabMenuPos, setTabMenuPos] = useState({ top: 0, left: 0 });
+  const tabOptionsRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest('.dropdown') && !target.closest('.btn-add-task')) {
         setOpenDropdownId(null);
+      }
+    };
+
+    window.document.addEventListener('click', handleClickOutside);
+    return () => window.document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.tab-options')) {
+        setTabMenuOpen(false);
       }
     };
 
@@ -78,6 +93,9 @@ const AppContent = ({ document }: AppContentProps) => {
     const target = doc.lists.find((list) => list.id === listId);
     if (!target) return;
 
+    // Close the tab-options-menu so it doesn't linger behind the modal
+    setTabMenuOpen(false);
+
     setModalConfig({
       isOpen: true,
       type: 'danger',
@@ -96,6 +114,22 @@ const AppContent = ({ document }: AppContentProps) => {
       },
       confirmLabel: 'Delete',
       cancelLabel: 'Cancel',
+    });
+  };
+
+  const handleEditList = (listId: string) => {
+    if (!doc) return;
+    const target = doc.lists.find((list) => list.id === listId);
+    if (!target) return;
+
+    const newTitle = prompt('Rename list:', target.title);
+    if (!newTitle?.trim()) return;
+
+    updateDocument({
+      ...doc,
+      lists: doc.lists.map((list) =>
+        list.id === listId ? { ...list, title: newTitle.trim() } : list
+      ),
     });
   };
 
@@ -310,6 +344,24 @@ const AppContent = ({ document }: AppContentProps) => {
     />
   );
 
+  const toggleTabMenu = () => {
+    if (!tabMenuOpen && tabOptionsRef.current) {
+      const rect = tabOptionsRef.current.getBoundingClientRect();
+      const menuWidth = 260;
+      const left = Math.max(
+        8,
+        Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8)
+      );
+      setTabMenuPos({ top: rect.bottom + 4, left });
+    }
+    setTabMenuOpen((open) => !open);
+  };
+
+  const handleReorderLists = (reordered: TodoList[]) => {
+    if (!doc) return;
+    updateDocument({ ...doc, lists: reordered });
+  };
+
   const handleTabClick = (listId: string) => {
     setActiveListId(listId);
     if (!doc) return;
@@ -335,19 +387,78 @@ const AppContent = ({ document }: AppContentProps) => {
       <nav className="tab-navigation">
         <div className="tab-list">
           {doc?.lists.map((list) => (
-            <div key={list.id} className={`tab-item ${list.id === activeListId ? 'active' : ''}`}>
-              <button className="tab-title-button" onClick={() => handleTabClick(list.id)} type="button">
-                {list.title}
-              </button>
-              <button className="tab-delete" onClick={() => handleDeleteList(list.id)} type="button">
-                <Icon name="ri-close-line" />
-              </button>
-            </div>
+            <button
+              key={list.id}
+              className={`tab-item ${list.id === activeListId ? 'active' : ''}`}
+              onClick={() => handleTabClick(list.id)}
+              type="button"
+            >
+              {list.title}
+            </button>
           ))}
 
           <button className="tab-item add-tab" onClick={handleAddList} type="button">
             <Icon name="ri-add-line" /> New List
           </button>
+
+          <div className="tab-options">
+            <button
+              ref={tabOptionsRef}
+              className="tab-options-button"
+              onClick={toggleTabMenu}
+              type="button"
+              title="View and reorder lists"
+            >
+              <Icon name="ri-list-settings-line" />
+            </button>
+
+            {tabMenuOpen && doc && (
+              <div
+                className="tab-options-menu"
+                style={{ top: tabMenuPos.top, left: tabMenuPos.left }}
+              >
+                <div className="tab-options-menu-header">Drag to reorder lists</div>
+                {doc.lists.length === 0 ? (
+                  <div className="tab-options-empty">No lists yet.</div>
+                ) : (
+                  <ReorderList
+                    items={doc.lists}
+                    getItemId={(list) => list.id}
+                    renderItem={(list) => (
+                      <>
+                        <Icon name="ri-draggable" className="tab-options-drag" />
+                        <span className="tab-options-title">{list.title}</span>
+                        {list.id === activeListId && (
+                          <Icon name="ri-check-line" className="tab-options-active" />
+                        )}
+                        <button
+                          className="icon-btn primary-icon-btn"
+                          onClick={() => handleEditList(list.id)}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          type="button"
+                          title="Rename list"
+                        >
+                          <Icon name="ri-pencil-line" />
+                        </button>
+                        <button
+                          className="icon-btn delete-icon-btn"
+                          onClick={() => handleDeleteList(list.id)}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          type="button"
+                          title="Delete list"
+                        >
+                          <Icon name="ri-delete-bin-line" />
+                        </button>
+                      </>
+                    )}
+                    onReorder={handleReorderLists}
+                    className="tab-options-list"
+                    itemClassName="tab-options-item"
+                  />
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </nav>
 

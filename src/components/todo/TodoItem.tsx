@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { type TodoItemType } from '../../types';
 import { Icon } from '../Icon';
 import { countCompletedItems } from '../../utils';
@@ -21,10 +21,18 @@ export const TodoItem: React.FC<TodoItemProps> = ({
   renderTodoItem,
 }) => {
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const hasChildren = item.listItems && item.listItems.length > 0;
   const childrenAllCompleted = hasChildren && item.listItems!.every((child) => child.completed);
   const deletionDisabled = item.isList && hasChildren && !childrenAllCompleted;
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (focusInputId === item.id && inputRef.current) {
@@ -71,6 +79,45 @@ export const TodoItem: React.FC<TodoItemProps> = ({
     if (!item.text?.trim() && !item.title?.trim()) {
       onDeleteTodo(item.id);
     }
+  };
+
+  const getCopyText = (): string => {
+    if (item.isList) {
+      return item.title || '';
+    }
+    if (item.isText) {
+      return item.text || item.title || '';
+    }
+    return item.title || '';
+  };
+
+  const handleCopyClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setOpenDropdownId(null);
+    const text = getCopyText();
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for non-secure contexts (e.g. plain http)
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      } catch {
+        /* ignore clipboard errors */
+      }
+    }
+
+    setCopied(true);
+    if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => setCopied(false), 1500);
   };
 
   const handleDeleteClick = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -153,11 +200,21 @@ export const TodoItem: React.FC<TodoItemProps> = ({
           />
         )}
 
+        <button
+          className="icon-btn primary-icon-btn"
+          onClick={handleCopyClick}
+          disabled={!getCopyText()}
+          title={copied ? 'Copied!' : 'Copy'}
+        >
+          <Icon name={copied ? 'ri-check-line' : 'ri-file-copy-line'} />
+        </button>
+
         {!item.isList && (
           <button
-            className="delete-icon-btn"
+            className="icon-btn delete-icon-btn"
             onClick={handleDeleteClick}
             disabled={deletionDisabled}
+            title="Delete"
           >
             <Icon name="ri-delete-bin-line" />
           </button>
