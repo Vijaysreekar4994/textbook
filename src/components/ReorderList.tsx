@@ -28,11 +28,21 @@ const DRAG_THRESHOLD = 6;
  * colored drop indicator is shown above/below the hovered row once the pointer
  * crosses 50% of that row's height, signalling where the item will be dropped.
  *
+ * Dragging only starts when the pointer goes down on the drag handle — the
+ * element rendered inside a row that carries the `reorder-handle` class. The
+ * rest of the row keeps its normal tap/scroll behaviour, so the list can be
+ * placed inside a scroll view.
+ *
  * Usage:
  * <ReorderList
  *   items={items}
  *   getItemId={(item) => item.id}
- *   renderItem={(item) => <span>{item.title}</span>}
+ *   renderItem={(item) => (
+ *     <>
+ *       <Icon name="ri-draggable" className="reorder-handle" />
+ *       <span>{item.title}</span>
+ *     </>
+ *   )}
  *   onReorder={(nextItems) => setItems(nextItems)}
  * />
  */
@@ -95,6 +105,10 @@ export function ReorderList<T>({
 
   const handlePointerDown = useCallback((id: string, e: React.PointerEvent) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Only start a drag when the pointer goes down on the drag handle. The rest
+    // of the row keeps normal tap/scroll behaviour, so a list can live inside a
+    // scroll view and still be reordered via its handle.
+    if (!(e.target as HTMLElement).closest('.reorder-handle')) return;
     dragRef.current.pending = {
       pointerId: e.pointerId,
       startX: e.clientX,
