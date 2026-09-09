@@ -426,7 +426,7 @@ const AppContent = ({ document }: AppContentProps) => {
                     getItemId={(list) => list.id}
                     renderItem={(list) => (
                       <>
-                        <Icon name="ri-draggable" className="tab-options-drag" />
+                        <Icon name="ri-draggable" className="tab-options-drag reorder-handle" />
                         <span className="tab-options-title">{list.title}</span>
                         {list.id === activeListId && (
                           <Icon name="ri-check-line" className="tab-options-active" />
