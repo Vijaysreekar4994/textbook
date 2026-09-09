@@ -44,7 +44,7 @@ interface RemoteSyncResult {
 
 export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps) => {
   const [status, setStatus] = useState<SyncStatus>(
-    document.ownerUserId ? (navigator.onLine ? 'reauth-required' : 'offline') : 'local-only'
+    document.ownerUserId ? 'reauth-required' : 'local-only'
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<DriveUser | null>(null);
@@ -55,6 +55,10 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
   const authSessionRef = useRef(createGoogleAuthSession(GOOGLE_CLIENT_ID));
   const apiServiceRef = useRef<ReturnType<typeof createGoogleApiService> | null>(null);
   const driveServiceRef = useRef<ReturnType<typeof createGoogleDriveSyncService> | null>(null);
+
+  const isNetworkError = (error: unknown): boolean =>
+    error instanceof TypeError ||
+    (error instanceof DOMException && error.name === 'NetworkError');
 
   // Initialize services after auth session is available
   useEffect(() => {
@@ -77,7 +81,7 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
       if (!driveService) {
         throw new Error('Drive service not initialized');
       }
-      
+
       const syncBase = await dbStorage.loadSyncBase(userId);
 
       for (let attempt = 0; attempt < MAX_REMOTE_RETRIES; attempt += 1) {
@@ -134,10 +138,6 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
   );
 
   const performSync = useCallback(async (): Promise<boolean> => {
-    if (!navigator.onLine) {
-      updateStatus('offline');
-      return false;
-    }
 
     if (!authSessionRef.current.hasValidAccessToken()) {
       updateStatus(document.ownerUserId ? 'reauth-required' : 'local-only');
@@ -155,7 +155,7 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
       if (!driveServiceRef.current) {
         throw new Error('Drive service not initialized');
       }
-      
+
       const authenticatedUser = await driveServiceRef.current.getCurrentUser();
       setCurrentUser(authenticatedUser);
 
@@ -191,7 +191,7 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
         const latestGuestDocument = document.getCurrentDocument() ?? originalDocument;
         const didGuestChangeDuringSync =
           latestGuestDocument.syncMetadata.documentVersion !==
-            originalDocument.syncMetadata.documentVersion ||
+          originalDocument.syncMetadata.documentVersion ||
           latestGuestDocument.updatedAt !== originalDocument.updatedAt;
 
         const documentToAdopt = didGuestChangeDuringSync
@@ -209,9 +209,19 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
       updateStatus(hasPendingLocalChanges ? 'syncing' : 'synced');
       return true;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Google Drive sync failed.';
+      if (isNetworkError(error)) {
+        setErrorMessage(
+          'Google Drive could not be reached. Your changes are saved locally.'
+        );
+        updateStatus('offline');
+        return false;
+      }
+
+      const message =
+        error instanceof Error ? error.message : 'Google Drive sync failed.';
+
       setErrorMessage(message);
-      updateStatus(navigator.onLine ? 'error' : 'offline');
+      updateStatus('error');
       return false;
     }
   }, [document, syncAgainstRemote, updateStatus]);
@@ -246,6 +256,14 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
     const userId = document.ownerUserId;
     if (!userId) return true;
 
+    if (!authSessionRef.current.hasValidAccessToken()) {
+      updateStatus('reauth-required');
+      setErrorMessage(
+        'Reconnect Google Drive and complete the final sync before signing out.'
+      );
+      return false;
+    }
+
     // A manual logout is destructive locally, so require a confirmed final Drive sync first.
     let didCompleteFinalSync = false;
 
@@ -254,6 +272,7 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
       const latestDocument = document.getCurrentDocument();
 
       if (!didSync || !latestDocument) break;
+
       if (!latestDocument.syncMetadata.isDirty) {
         didCompleteFinalSync = true;
         break;
@@ -261,17 +280,23 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
     }
 
     if (!didCompleteFinalSync) {
-      setErrorMessage('Reconnect to Google Drive and complete the final sync before logging out.');
+      setErrorMessage(
+        'Reconnect Google Drive and complete the final sync before signing out.'
+      );
       return false;
     }
 
     await dbStorage.deleteUserDocument(userId);
     await dbStorage.deleteSyncBase(userId);
+
     authSessionRef.current.clearAccessToken();
     setCurrentUser(null);
+
     await document.resetAfterLogout();
+
     updateStatus('local-only');
     setErrorMessage(null);
+
     return true;
   }, [document, syncNow, updateStatus]);
 
@@ -314,11 +339,6 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
     if (!currentDocument?.syncMetadata.isDirty || !document.ownerUserId) return;
 
     /* eslint-disable react-hooks/set-state-in-effect */
-    if (!navigator.onLine) {
-      setStatus('offline');
-      return;
-    }
-
     if (!authSessionRef.current.hasValidAccessToken()) {
       setStatus('reauth-required');
       return;
@@ -338,11 +358,6 @@ export const DriveSyncProvider = ({ children, document }: DriveSyncProviderProps
     /* eslint-disable react-hooks/set-state-in-effect */
     if (!document.ownerUserId) {
       setStatus('local-only');
-      return;
-    }
-
-    if (!navigator.onLine) {
-      setStatus('offline');
       return;
     }
 

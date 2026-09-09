@@ -29,14 +29,32 @@ const STATUS_CLASS_NAMES = {
 } as const;
 
 export const SyncPanel = ({ document, isDbAvailable }: SyncPanelProps) => {
-  const { status, errorMessage, currentUser, isConnected, connect, logout } = useDriveSync();
+  const {
+    status,
+    errorMessage,
+    currentUser,
+    isConnected,
+    connect,
+    syncNow,
+    logout,
+  } = useDriveSync();
   const [isLogoutPending, setIsLogoutPending] = useState(false);
 
   const isBusy = status === 'connecting' || status === 'syncing' || isLogoutPending;
-  const needsReconnect = isConnected && (status === 'reauth-required' || status === 'error');
+  const needsReconnect = isConnected && status === 'reauth-required';
+
+  const canRetrySync =
+    isConnected && (status === 'offline' || status === 'error');
+
+  const canShowAutoSync =
+    isConnected && (status === 'synced' || status === 'syncing');
 
   const handleConnect = () => {
     void connect();
+  };
+  
+  const handleRetrySync = () => {
+    void syncNow();
   };
 
   const handleLogout = async () => {
@@ -65,25 +83,62 @@ export const SyncPanel = ({ document, isDbAvailable }: SyncPanelProps) => {
 
       <div className="sync-controls">
         {!isConnected && (
-          <button className="btn btn-primary" onClick={handleConnect} disabled={isBusy} type="button">
+          <button
+            className="btn btn-primary"
+            onClick={handleConnect}
+            disabled={isBusy}
+            type="button"
+          >
             <Icon name="ri-plug-line" /> Connect Google Drive
           </button>
         )}
 
         {needsReconnect && (
-          <button className="btn btn-primary" onClick={handleConnect} disabled={isBusy} type="button">
+          <button
+            className="btn btn-primary"
+            onClick={handleConnect}
+            disabled={isBusy}
+            type="button"
+          >
             <Icon name="ri-refresh-line" /> Reconnect Google Drive
           </button>
         )}
 
-        {isConnected && !needsReconnect && (
+        {canRetrySync && (
+          <button
+            className="btn btn-primary"
+            onClick={handleRetrySync}
+            disabled={isBusy}
+            type="button"
+          >
+            <Icon name="ri-refresh-line" /> Retry Sync
+          </button>
+        )}
+
+        {status === 'offline' && isConnected && (
           <span className="auto-sync-indicator">
-            <Icon name="ri-checkbox-circle-fill" /> Background sync enabled
+            <Icon name="ri-cloud-off-line" /> Changes saved locally
+          </span>
+        )}
+
+        {canShowAutoSync && (
+          <span className="auto-sync-indicator">
+            <Icon name="ri-checkbox-circle-fill" /> Auto-sync enabled
           </span>
         )}
 
         {isConnected && (
-          <button className="btn btn-outline" onClick={handleLogout} disabled={isBusy} type="button">
+          <button
+            className="btn btn-outline"
+            onClick={handleLogout}
+            disabled={
+              isBusy ||
+              status === 'offline' ||
+              status === 'reauth-required' ||
+              status === 'error'
+            }
+            type="button"
+          >
             <Icon name="ri-logout-box-line" /> Sign Out
           </button>
         )}
